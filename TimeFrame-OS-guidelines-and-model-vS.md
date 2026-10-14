@@ -57,22 +57,36 @@ SET_DATA_SHEET=All-SET-MTFS
 
 ### รูปแบบรายงาน
 
-- `UPDATE` ปกติเริ่มด้วยสรุปจากแถว AKA `ADVANC` ใน snapshot ตามรูปแบบต่อไปนี้ ก่อนแสดงรายงานกลุ่ม:
+- ใช้มาตรฐานการนำเสนอร่วมกันทุกคำสั่ง: หัวข้อ/metadata ที่คำสั่งนั้นกำหนด → ผลลัพธ์ใน Markdown table ตาม schema ของคำสั่ง → คำเตือนตามจริงท้ายรายงาน คงหัวข้อ ลำดับคอลัมน์ ลำดับแถว และเนื้อหาจาก stdout ให้ครบถ้วน
+- เมื่อแสดงผลในแชต ให้ render ตารางเป็น Markdown จริง ไม่ครอบรายงานด้วย code fence ไม่ตัดทอน/สรุปแทนตาราง และไม่เติมค่าที่ไม่มีในผลการรัน
+- schema เป็นไปตามคำสั่ง ไม่ใช่การบังคับให้ทุกคำสั่งใช้เนื้อหาเหมือนกัน:
 
-  ```text
-  AKA         : ADVANC 🔔
-  LAST_CANDLE : <timestamp ของ candle ล่าสุด>
-  UPDATED     : <timestamp ที่ข้อมูลอัปเดตล่าสุด>
-  GROUP       : <GROUP>
-  ```
+  | คำสั่ง | ส่วนหัว | ตารางผลลัพธ์ | ส่วนท้าย |
+  |---|---|---|---|
+  | `UPDATE` | สรุปจากแถว `ADVANC`: `AKA`, `LAST_CANDLE`, `UPDATED`, `GROUP` | ห้ากลุ่มสถานะตามตัวอย่างใน README; `WAIT/RETEST` แสดงจำนวนอย่างเดียว | คำเตือนตามจริง |
+  | `UPDATE/<AKA>-<AKA>-...` | metadata `AKA`, `LAST_CANDLE`, `UPDATED`, `GROUP` สำหรับทุกหุ้นตามลำดับที่ร้องขอ | `🔵 SPECIFIED STOCK` พร้อมคอลัมน์ `AKA | GROUP | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity | Avg Turnover 20D*` | แจ้งหุ้นที่ไม่พบ/metadata ไม่ครบและคำเตือนตามจริง |
+  | `CANDIDATE` | หัวข้อ `ผลการค้นหา CANDIDATE (PRE-ENTRY-Like Pattern) — n หุ้น` และข้อความเกณฑ์ | `# | หุ้น | GROUP | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity | Avg Turnover 20D*` | คำเตือนตามจริง |
 
-  ต้องมีคอลัมน์ `LAST_CANDLE`, `UPDATED` และค่าทั้งสองในแถว `ADVANC`; หากไม่พบข้อมูลให้รายงานข้อผิดพลาด ไม่คาดเดาหรือแสดงผลสำเร็จแทน
+- สำหรับ `UPDATE` ปกติ ต้องมีคอลัมน์ `LAST_CANDLE`, `UPDATED` และค่าทั้งสองในแถว `ADVANC`; หากไม่ครบให้รายงานข้อผิดพลาด ไม่คาดเดาหรือแสดงผลสำเร็จแทน
+- `CANDIDATE` ไม่แสดงสรุป `ADVANC` หรือกลุ่มสถานะ UPDATE; `UPDATE/<AKA>-...` ไม่แสดงกลุ่ม UPDATE ปกติ ห้ามเพิ่มส่วนที่คำสั่งนั้นไม่ได้สร้าง
+- หุ้นที่มีชื่อในตารางต้องเป็น Markdown link ไปยัง Finnomena ตามรูปแบบ `https://www.finnomena.com/stock/<AKA>/advance`
+
+- `Output Contract` (ข้อกำหนดบังคับเรื่องการแสดงผล): ก่อนแสดงผลทุกครั้ง ต้องยึดเงื่อนไขต่อไปนี้ให้ครบถ้วน
+  - ใช้คำสั่งและรูปแบบงานที่กำหนดเท่านั้น; ห้ามเลี่ยงหรือเรียกแบบอื่นแทน
+  - `UPDATE` ปกติต้องเริ่มด้วยบล็อก `AKA / LAST_CANDLE / UPDATED / GROUP` ตามรูปแบบแน่นอน หากคอลัมน์หรือค่า `LAST_CANDLE` หรือ `UPDATED` ในแถว `ADVANC` ขาดหรือว่าง ต้องรายงานข้อผิดพลาดและหยุด ไม่คาดเดาหรือสรุปว่าดี/สำเร็จ
+  - `EARLY/WATCH` ต้องเรียงตาม `MACD_HIST_DELTA(W)` มากไปน้อย และ `PULLBACK ZONE` ต้องเรียงตาม Combined Score มากไปน้อย ตาม snapshot
+  - ตารางทุกคำสั่งต้องเป็น Markdown table; หุ้นทุกแถวต้องเป็น Markdown link ไปยัง Finnomena ตามรูปแบบ `https://www.finnomena.com/stock/<AKA>/advance`
+  - `UPDATE/<AKA>-<AKA>-...` ต้องแสดงบล็อก `AKA`, `LAST_CANDLE`, `UPDATED`, `GROUP` ตามลำดับที่ร้องขอ และคงโครงสร้างตารางตามที่กำหนดไว้
+  - `CANDIDATE` ต้องแสดงหัวข้อ `ผลการค้นหา CANDIDATE (PRE-ENTRY-Like Pattern) — n หุ้น` และรักษาลำดับคอลัมน์ `# | หุ้น | GROUP | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity | Avg Turnover 20D*`
+  - ห้ามเพิ่ม metadata `ADVANC` หรือกลุ่ม UPDATE ลงใน `CANDIDATE`; ห้ามเพิ่มกลุ่ม UPDATE ลงใน `UPDATE/<AKA>-...`
+  - เมื่อรายงานผลในแชต ต้อง render Markdown ฉบับเต็ม ไม่ใช้ code fence, ไม่ย่อหรือแทนตารางด้วยข้อความ และไม่สร้างค่าขึ้นเอง
+  - หากข้อมูล/credentials/feed ไม่พร้อมหรือดาวน์โหลดล้มเหลว ต้องรายงานตามข้อเท็จจริงเท่านั้น ไม่อ้างว่าแสดงผลสำเร็จหรือใช้ข้อมูลเก่าแทน
+  - การรายงานต้องยึด snapshot ล่าสุดที่เพิ่งดาวน์โหลดได้เท่านั้น ห้ามใช้ HTTP cache หรือข้อมูลเก่าเพื่อบิดเบือนผลลัพธ์
 - หลังสรุป `UPDATE` แสดงกลุ่ม `🟢 BUY CONFIRMED`, `🟡 EARLY/WATCH`, `🟠 PULLBACK ZONE`, `🔴 OVEREXTENDED` และ `⚪ WAIT/RETEST` ตาม signals ใน snapshot; `EARLY/WATCH` เรียงตาม `MACD_HIST_DELTA(W)` มากไปน้อย และ `PULLBACK ZONE` เรียงตาม Combined Score มากไปน้อย
 - ตารางใช้ `GROUP` แทน `TIER`; หุ้นทุกแถวและรายชื่อ OVEREXTENDED เป็น Markdown link ไปยัง Finnomena ตามรูปแบบ `https://www.finnomena.com/stock/<AKA>/advance`
 - `CANDIDATE` แสดงหัวข้อ `ผลการค้นหา CANDIDATE (PRE-ENTRY-Like Pattern) — n หุ้น` ตารางแสดงไม่เกิน 20 รายการ เรียง `MACD_HIST_DELTA(W)` มากไปน้อย และคงลำดับคอลัมน์ `# | หุ้น | GROUP | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity | Avg Turnover 20D*`; ดึง Liquidity และข้อมูลย้อนหลังเฉพาะหุ้นที่แสดงใน TOP 20
 - เมื่อมี Settrade credentials ระบบสมัคร feed read-only สำหรับมูลค่าซื้อขายสะสมวันนี้ (`InfoV3.total_value`) และ bid/ask 10 ระดับ (`BidOfferV3`); แสดง turnover, ราคา bid/ask ระดับแรก, spread และผลรวมปริมาณ bid/ask 10 ระดับเป็นตัวเลขดิบเท่านั้น ไม่จัดระดับ HIGH/MEDIUM/LOW
-- หากไม่มี credentials, feed ไม่ตอบกลับ หรือข้อมูลบางส่วนไม่ครบ ระบบแสดง `⚫ N/A` เฉพาะค่าที่ไม่มีและเตือนสาเหตุ; ไม่ใช้ snapshot หรือ cache เก่ามาแทน
-- `UPDATE` ปกติประมวลผล signals และดึง Liquidity กับข้อมูล turnover ย้อนหลังของหมวดที่แสดงให้เสร็จก่อนพิมพ์รายงาน แล้วแสดงค่าทั้งสองพร้อม signals ในตารางหมวดเดียวกัน ไม่แสดงตาราง refresh แยกด้านล่าง ดึงเฉพาะ BUY CONFIRMED, EARLY/WATCH สูงสุด 10, PULLBACK ZONE สูงสุด 10 และ OVEREXTENDED; WAIT/RETEST แสดงเพียงจำนวน จึงไม่ดึง Liquidity หรือ Avg Turnover 20D*
+- หากไม่มี credentials, feed ไม่ตอบกลับ  หรือข้อมูลบางส่วนไม่ครบ ระบบแสดง `⚫ N/A` เฉพาะค่าที่ไม่มีและเตือนสาเหตุ; ไม่ใช้ snapshot หรือ cache เก่ามาแทน- `UPDATE` ปกติประมวลผล signals และดึง Liquidity กับข้อมูล turnover ย้อนหลังของหมวดที่แสดงให้เสร็จก่อนพิมพ์รายงาน แล้วแสดงค่าทั้งสองพร้อม signals ในตารางหมวดเดียวกัน ไม่แสดงตาราง refresh แยกด้านล่าง ดึงเฉพาะ BUY CONFIRMED, EARLY/WATCH สูงสุด 10, PULLBACK ZONE สูงสุด 10 และ OVEREXTENDED; WAIT/RETEST แสดงเพียงจำนวน จึงไม่ดึง Liquidity หรือ Avg Turnover 20D*
 - Liquidity ประมวลผลทีละหุ้น โดยเปิดไม่เกินสอง feed subscriptions พร้อมกันและปิดก่อนหุ้นถัดไป จำกัดเวลารวมของคำขอแต่ละครั้ง 120 วินาที และแสดงสรุปข้อมูลครบ/ข้อผิดพลาด เพื่อลดปัญหา subscription limit โดยไม่อ้างว่าได้ข้อมูลสำหรับหุ้นที่ไม่ได้ร้องขอ; เมื่อหมดเวลา หุ้นที่เหลือจะแสดงเป็น `N/A` พร้อมคำเตือน
 - `UPDATE` ดึง daily candles จาก Settrade เพิ่มสำหรับหุ้นที่แสดง โดยเลือก 20 วันซื้อขายที่มี volume ก่อนวันปัจจุบัน และเพิ่ม `Avg Turnover 20D*` ซึ่งเป็นค่าประมาณ `close × volume` เฉลี่ย ไม่ใช่มูลค่าซื้อขายจริง; ทดสอบ UAT แล้วพบ daily `value` เป็นศูนย์แม้มี volume จึงไม่ใช้ field นี้สร้างค่าเฉลี่ยและแสดงคำเตือนเมื่อพบความผิดปกติ หาก historical data ไม่ครบจะแสดง `⚫ N/A`; ห้ามใช้ค่านี้จัดระดับ HIGH/MEDIUM/LOW จนกว่าจะยืนยันนิยามข้อมูลและสิทธิ์การใช้งาน
 - `UPDATE/<AKA>-<AKA>-...` แสดงข้อมูล `AKA`, `LAST_CANDLE`, `UPDATED`, `GROUP` แยกทีละหุ้นตามลำดับที่ขอ แล้วตามด้วย `🔵 SPECIFIED STOCK — n รายการ` และตารางคอลัมน์ `AKA | GROUP | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity | Avg Turnover 20D*`; เรียงตารางตาม CMB score มากไปน้อย
