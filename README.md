@@ -6,13 +6,13 @@ TimeFrame OS (vS) เป็นเครื่องมือสำหรับ�
 
 - ดาวน์โหลด snapshot XLSX จาก Reference Sheet ที่กำหนดไว้
 - ตรวจสอบโครงสร้างและข้อมูลพื้นฐานของ snapshot
-- จัดกลุ่มรายงาน UPDATE และคัดหุ้น Candidate จาก signals ที่มีในชีต
+- จัดกลุ่ม MPTM และคัดหุ้น Candidate จาก signals ใน snapshot
 - แสดงรายงานใน Terminal พร้อมลิงก์ Finnomena
-- เก็บ snapshot ที่ดาวน์โหลดไว้ใน `downloads/` เพื่อให้ตรวจสอบข้อมูลชุดที่ใช้ได้
+- บันทึก snapshot และรายงาน Excel 3 ชีทไว้ใน `downloads/`
 
 > **สถานะ: อยู่ระหว่างพัฒนา — ห้ามใช้วิเคราะห์หรือตัดสินใจซื้อขายหุ้นจริง**
 >
-> ระบบยังไม่คำนวณ MPTM จาก OHLCV หรือสร้างรายงาน Excel; Settrade market data เป็นตัวเลือก read-only และไม่มีการส่งคำสั่งซื้อขาย
+> `tfos.sh` เป็น Bash entrypoint; AWK จัดกลุ่ม signals จาก snapshot และ inline Python ใช้เฉพาะอ่าน/เขียน XLSX กับ Settrade API ไม่มีไฟล์ Python ถาวร ระบบไม่คำนวณ OHLCV ใหม่หรือส่งคำสั่งซื้อขาย
 
 ## 🔔 การเริ่มต้นใช้งาน
 
@@ -43,7 +43,7 @@ SETTRADE_BROKER_ID=SANDBOX
 SETTRADE_APP_CODE=SANDBOX
 ```
 
-การทำงานจริงของระบบคือ: ทุกครั้งที่รัน `UPDATE` หรือ `CANDIDATE` จะอ่าน `.env` ก่อนดึง liquidity และ historical turnover จาก Settrade ผ่าน `load_config()` ใน [set_update.py](./set_update.py); หากค่า `SETTRADE_APP_ID` หรือ `SETTRADE_APP_SECRET` ไม่มี หรือ feed ไม่ตอบกลับ ระบบจะแสดง `⚫ N/A` พร้อมข้อความเตือนตามข้อเท็จจริง โดยไม่ใช้ cache หรือค่าเดียวที่คาดเดาแทน รายงานใช้ read-only feeds เท่านั้น: มูลค่าซื้อขายสะสมวันนี้ (`InfoV3.total_value`), ราคา bid/ask ระดับแรก, spread และผลรวมปริมาณ order book bid/ask 10 ระดับ (`BidOfferV3`). แสดงตัวเลขดิบ ไม่จัดระดับสภาพคล่อง; ข้อมูลที่ขาดจะแสดง `N/A` พร้อมแจ้งข้อผิดพลาดหรือ timeout และจะไม่ใช้ cache แทน สำหรับ `Avg Turnover 20D*` จะใช้ประมาณจาก `close × volume` เฉลี่ย 20 วัน และแจ้งว่าค่าดังกล่าวเป็นประมาณเท่านั้น ไม่มีการใช้ PIN/เลขบัญชีหรือเรียก API บัญชี/คำสั่งซื้อขาย เก็บ credentials ไว้ใน `.env` และห้ามแชร์หรือ commit ค่าเหล่านี้
+การทำงานจริงของระบบคือ: ทุกครั้งที่รัน `UPDATE` หรือ `CANDIDATE` จะอ่าน `.env` ก่อนดึง Liquidity และ historical turnover จาก Settrade ผ่าน `tfos.sh`; หากไม่มี credentials หรือ feed ไม่ตอบกลับ ระบบจะแสดง `⚫ N/A` พร้อมคำเตือน และไม่ใช้ cache หรือค่าคาดเดาแทน รายงานใช้ read-only feeds เท่านั้น: มูลค่าซื้อขายสะสมวันนี้ (`InfoV3.total_value`), ราคา bid/ask ระดับแรก, spread และผลรวมปริมาณ order book bid/ask 10 ระดับ (`BidOfferV3`). แสดงตัวเลขดิบ ไม่จัดระดับสภาพคล่อง; ข้อมูลที่ขาดจะแสดง `N/A` พร้อมแจ้งข้อผิดพลาดหรือ timeout สำหรับ `Avg Turnover 20D*` จะประมาณจาก `close × volume` เฉลี่ย 20 วันและระบุชัดว่าเป็นค่าประมาณ ไม่มีการใช้ PIN/เลขบัญชีหรือเรียก API บัญชี/คำสั่งซื้อขาย เก็บ credentials ไว้ใน `.env` และห้ามแชร์หรือ commit ค่าเหล่านี้
 
 > ตรวจสอบจริง: หาก `.env` มีค่า App ID/Secret อยู่แล้ว script จะนำไปใช้โดยอัตโนมัติในรันถัดไป; หากไม่มีค่า หรือ feed ไม่พร้อมใช้งาน จะเป็น `⚫ N/A` และไม่ได้ซ่อนไว้หรือลบโดยอัตโนมัติ
 
@@ -54,9 +54,9 @@ Settrade แจ้งว่า Sandbox จำกัดการเข้าถ�
 | คำสั่ง | วิธีใช้ | ผลลัพธ์ |
 |---|---|---|
 | `START @README.md` | พิมพ์ในแชต | อ่าน README และทบทวน guideline ก่อนรอคำสั่ง |
-| `UPDATE` | `./update.sh` | ดาวน์โหลด snapshot ตรวจข้อมูล และแสดงรายงานหุ้น |
-| `UPDATE/<AKA>-<AKA>-...` | `./update.sh UPDATE/PTT-AOT-CPALL` | แสดงรายงานเฉพาะหุ้นที่ระบุ |
-| `CANDIDATE` | `./candidate.sh` | คัดหุ้นตามเกณฑ์ Candidate 7 ข้อ |
+| `UPDATE` | รัน `./update.sh` | ดาวน์โหลดข้อมูลล่าสุด + ประมวลผล MPTM + ตรวจ Liquidity (`Liquidity` และ `Avg Turnover 20D*`) |
+| `UPDATE/<AKA>-<AKA>-...` | รัน `./update.sh UPDATE/PTT-AOT-CPALL` | ดาวน์โหลด snapshot และแสดงเฉพาะหุ้นที่ระบุ |
+| `CANDIDATE` | ค้นหาใน Excel ด้วย `./candidate.sh` | แสดงหุ้นที่ผ่าน PRE-ENTRY-Like Pattern (7 เกณฑ์) |
 | `REVIEW` | พิมพ์ในแชต | ทบทวน guideline อีกครั้ง |
 
 ## 📌 ข้อมูลสำคัญ
@@ -214,6 +214,22 @@ GROUP       : <GROUP>
 7. `SIGNAL_VOLUME` เป็น `BUY` อย่างน้อยหนึ่ง timeframe ใน W/D/4H/1H
 
 รายงานแสดงจำนวนผู้ผ่านทั้งหมดและไม่เกิน 20 แถว เรียงตาม `MACD_HIST_DELTA(W)` จากมากไปน้อย พร้อม `GROUP`, ราคา, `ENTRY_ZONE(4H)`, `ENTRY_TRIGGER(1H)`, Liquidity และ `Avg Turnover 20D*`; ดึงข้อมูลเพิ่มเฉพาะผู้ผ่านที่แสดงใน 20 แถวแรก
+
+### สถานะ MPTM และรายงาน Excel
+
+- 🟢 `BUY CONFIRMED`: ผ่าน MPTM และมี 1H Trigger ยืนยัน
+- 🟡 `EARLY/WATCH`: ผ่านเกณฑ์ MPTM แต่รอ 1H Trigger
+- 🟠 `PULLBACK ZONE`: W/D/4H/1H เป็น UP และ RSI(1H) < 50
+- 🔴 `OVEREXTENDED`: RSI(D) ≥ 70
+- ⚪ `WAIT/RETEST`: โครงสร้างยังไม่พร้อม; แสดงเฉพาะจำนวนหุ้น ไม่แสดงรายชื่อหรือตาราง
+
+ทุกครั้งที่รันคำสั่งจะสร้าง/อัปเดต `downloads/All-SET-MTFS_output.xlsx` โดยมีสามชีท:
+
+1. `Latest Snapshot` — signals ล่าสุด, สถานะ MPTM, คำแนะนำ, TREND(W)/TREND(D) และข้อมูล Liquidity ที่ดึงได้
+2. `Master Signal Log` — ประวัติแบบ append-only; หากโครงสร้างเดิมไม่ตรง ระบบหยุดแทนการเขียนทับประวัติ
+3. `REF.` — ลิงก์ Reference Sheet ต้นทาง
+
+`UPDATE` และ `CANDIDATE` เป็น shell scripts; ไม่มีไฟล์ `*.py` หรือ `report.awk` ถาวรใน workflow นี้ โดยใช้ inline Python เฉพาะอ่าน/เขียน XLSX และเรียก Settrade API ส่วนการจัดสถานะทำจาก signals ใน snapshot ไม่ได้คำนวณ OHLCV ใหม่ ไม่ได้ตรวจ benchmark/ปฏิทินซื้อขาย/corporate actions/tick size/board lot และไม่ส่งคำสั่งซื้อขาย
 
 ## 💧 แหล่งข้อมูล Liquidity
 

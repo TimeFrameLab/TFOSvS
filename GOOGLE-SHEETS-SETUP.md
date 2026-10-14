@@ -1,6 +1,6 @@
 # ตั้งค่าแหล่งข้อมูลและคำสั่ง TFOSvS (SET)
 
-`UPDATE` และ `CANDIDATE` ทำงานผ่าน shell scripts โดยแต่ละครั้งจะดาวน์โหลด XLSX จาก `SET_DATA_URL` ใน `.env` เก็บไว้ที่ `downloads/All-SET-MTFS.xlsx` ตรวจข้อมูลจาก snapshot ล่าสุด และแสดงผลใน Terminal โดยไม่คำนวณ OHLCV ใหม่
+`UPDATE` และ `CANDIDATE` ใช้ Bash เป็น entrypoint โดยแต่ละครั้งจะดาวน์โหลด XLSX จาก `SET_DATA_URL` ใน `.env` เก็บไว้ที่ `downloads/All-SET-MTFS.xlsx` ตรวจ snapshot และแสดงผลใน Terminal; Bash/AWK จัดกลุ่ม signals ส่วน inline Python ใช้เฉพาะอ่าน/เขียน XLSX และเรียก Settrade API ไม่มีไฟล์ Python หรือ AWK แยกถาวร และไม่มีการคำนวณ OHLCV ใหม่
 
 ## ตั้งค่า
 
@@ -63,16 +63,21 @@
 
 ## คำสั่ง
 
-- `./update.sh` หรือ `./update.sh UPDATE` — ดาวน์โหลด snapshot ล่าสุด ตรวจข้อมูลและแสดงหุ้นทั้งหมดตาม GROUP พร้อมราคา, MACD delta, TREND/RSI, ACTION และลิงก์ Finnomena
+- `./update.sh` หรือ `./update.sh UPDATE` — ดาวน์โหลดข้อมูลล่าสุด ประมวลผล MPTM จาก snapshot และตรวจ Liquidity (`Liquidity` กับ `Avg Turnover 20D*`)
 - `./update.sh UPDATE/PTT-AOT-CPALL` — ดาวน์โหลด snapshot ใหม่และแสดงเฉพาะ AKA ที่ระบุ; AKA ที่ไม่มีใน snapshot จะถูกรายงานและทำให้คำสั่งจบด้วย error status
-- `./candidate.sh` หรือ `./candidate.sh CANDIDATE` — ดาวน์โหลด snapshot ใหม่และคัดหุ้นที่ผ่านครบทั้ง 7 เงื่อนไข Candidate
-- `python3 set_update.py` — ทำงานเทียบเท่า `UPDATE` โดยตรง
+- `./candidate.sh` หรือ `./candidate.sh CANDIDATE` — อ่าน snapshot Excel ที่ดาวน์โหลดล่าสุดและแสดงหุ้นที่ผ่าน PRE-ENTRY-Like Pattern ทั้ง 7 เกณฑ์
 
-`UPDATE` ปกติเริ่มด้วยสรุปหุ้น `ADVANC` โดยอ่าน `AKA`, `LAST_CANDLE`, `UPDATED` และ `GROUP` จากแถวเดียวกันใน snapshot; ต้องมีคอลัมน์ timestamp ทั้งคู่และมีค่า หากไม่มีจะแจ้งข้อผิดพลาด จากนั้นรายงานจัดกลุ่มหุ้นเป็น `BUY CONFIRMED`, `EARLY/WATCH`, `PULLBACK ZONE`, `OVEREXTENDED` และ `WAIT/RETEST` ตามสัญญาณใน snapshot โดยเรียง `EARLY/WATCH` ตาม `MACD_HIST_DELTA(W)` และ `PULLBACK ZONE` ตาม Combined Score; แสดง `GROUP` และชื่อตารางเป็นลิงก์ Finnomena.
+`UPDATE` ปกติเริ่มด้วยสรุปหุ้น `ADVANC` โดยอ่าน `AKA`, `LAST_CANDLE`, `UPDATED` และ `GROUP` จากแถวเดียวกันใน snapshot; ต้องมีคอลัมน์ timestamp ทั้งคู่และมีค่า หากไม่มีจะแจ้งข้อผิดพลาด จากนั้นจัดกลุ่มสถานะ MPTM จาก signals ใน snapshot เป็น `BUY CONFIRMED`, `EARLY/WATCH`, `PULLBACK ZONE`, `OVEREXTENDED` และ `WAIT/RETEST` โดยเรียง `EARLY/WATCH` ตาม `MACD_HIST_DELTA(W)` และ `PULLBACK ZONE` ตาม Combined Score; แสดง `GROUP` และชื่อตารางเป็นลิงก์ Finnomena.
 
 `UPDATE/<AKA>-<AKA>-...` แสดงบล็อก `AKA`, `LAST_CANDLE`, `UPDATED`, `GROUP` ของแต่ละ AKA ก่อนตาราง `🔵 SPECIFIED STOCK — n รายการ` ที่มีคอลัมน์ `AKA | GROUP | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity | Avg Turnover 20D*`; เรียงแถวตาม CMB score จากมากไปน้อย. AKA ที่ไม่พบหรือไม่มี timestamp จะแจ้งตามจริงและคืน error status; ไม่มีการจัดระดับ Liquidity เป็น HIGH/MEDIUM/LOW. `CANDIDATE` แสดงจำนวนผู้ผ่านทั้งหมดและตารางไม่เกิน 20 หุ้น เรียง `MACD_HIST_DELTA(W)` จากมากไปน้อย พร้อม `GROUP`, ราคา, `ENTRY_ZONE(4H)`, `ENTRY_TRIGGER(1H)`, Liquidity และ `Avg Turnover 20D*`; ดึงข้อมูลเพิ่มเฉพาะ 20 หุ้นแรกที่แสดง
 
-คำสั่งเหล่านี้อ่าน snapshot ล่าสุดที่ดาวน์โหลดมาเท่านั้น ไม่ได้บันทึกหรือแก้ไข Workbook ต้นทาง
+คำสั่งเหล่านี้อ่าน snapshot ล่าสุดที่ดาวน์โหลดมาเท่านั้น ไม่ได้แก้ไข Workbook ต้นทาง แต่สร้าง/อัปเดตรายงานที่ `downloads/All-SET-MTFS_output.xlsx` จำนวนสามชีท:
+
+1. `Latest Snapshot` — signals ล่าสุดพร้อม Recommendation, สถานะ MPTM และ TREND(W)/TREND(D)
+2. `Master Signal Log` — บันทึกผลแบบ append-only; หาก schema เดิมไม่ตรงจะหยุดเพื่อรักษาประวัติ
+3. `REF.` — ลิงก์ Reference Sheet ต้นทาง
+
+`WAIT/RETEST` แสดงเฉพาะหัวข้อและจำนวนหุ้น ไม่มีรายชื่อหรือตาราง และไม่เรียก Settrade สำหรับกลุ่มนี้
 
 `UPDATE` ประมวลผล signals และดึงข้อมูลก่อนเริ่มแสดงรายงาน แล้วรวม Liquidity ปัจจุบันและ `Avg Turnover 20D*` ในตาราง ไม่แสดงตาราง refresh แยกด้านล่าง คำสั่งปกติดึงเฉพาะหุ้นที่แสดงใน `BUY CONFIRMED`, `EARLY/WATCH` สูงสุด 10, `PULLBACK ZONE` สูงสุด 10 และ `OVEREXTENDED`; `WAIT/RETEST` แสดงจำนวนอย่างเดียวและไม่ดึงทั้ง Liquidity ปัจจุบันหรือข้อมูลย้อนหลัง ระบบขอ feed ปัจจุบันทีละหุ้น เปิดไม่เกิน 2 subscriptions พร้อมกันและปิดก่อนหุ้นถัดไป ส่วนข้อมูลย้อนหลังใช้ daily candles จาก Settrade สำหรับ 20 วันซื้อขายที่มี volume ก่อนวันนี้ ภายในงบเวลารวม 120 วินาที; เมื่อข้อมูลไม่ครบจะแสดง `⚫ N/A` พร้อมคำเตือน
 

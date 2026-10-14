@@ -2,7 +2,7 @@
 
 ## สถานะและขอบเขต
 
-TFOSvS อยู่ระหว่างพัฒนาและยังไม่ใช่ระบบแนะนำการลงทุนหรือส่งคำสั่งซื้อขาย คำสั่ง `UPDATE` และ `CANDIDATE` ดาวน์โหลด snapshot XLSX ล่าสุดจาก `SET_DATA_URL` แล้วตรวจ/แสดง signals ที่มีในชีต โดยไม่คำนวณ OHLCV; สามารถเปิดใช้ Settrade read-only market data สำหรับ Liquidity ได้ตาม credentials ที่กำหนด
+TFOSvS อยู่ระหว่างพัฒนาและยังไม่ใช่ระบบแนะนำการลงทุนหรือส่งคำสั่งซื้อขาย `update.sh` และ `candidate.sh` เรียก `tfos.sh` เป็น Bash entrypoint; AWK จัดกลุ่ม MPTM จาก signals ใน snapshot ส่วน inline Python ใช้เฉพาะอ่าน/เขียน XLSX และเรียก Settrade API ไม่มีไฟล์ `*.py` หรือ `report.awk` ถาวรใน workflow นี้
 
 ยังไม่มีการดึง OHLCV จาก API ตลาดหรือคำสั่งซื้อขาย; Settrade (ถ้าตั้งค่า) ใช้เฉพาะ public market-data feeds ไม่เรียก API บัญชีหรือคำสั่ง
 
@@ -53,9 +53,13 @@ SET_DATA_SHEET=All-SET-MTFS
   5. `RSI(D) < 70`
   6. `EMA9(W) > EMA21(W)`
   7. `SIGNAL_VOLUME` เป็น `BUY` อย่างน้อยหนึ่ง timeframe ใน W/D/4H/1H
-- ทั้งสองคำสั่งแสดงผลใน Terminal ไม่แก้ workbook ต้นทาง ไม่คำนวณ signals ใหม่ และไม่ส่งคำสั่งซื้อขาย
+- คำสั่งแสดงผลใน Terminal และสร้าง/อัปเดตรายงาน `downloads/All-SET-MTFS_output.xlsx`; ไม่แก้ workbook ต้นทาง ไม่คำนวณ OHLCV/signals ใหม่ และไม่ส่งคำสั่งซื้อขาย
 
 ### รูปแบบรายงาน
+
+รายงาน Excel มีสามชีท: `Latest Snapshot` สำหรับผลล่าสุดและสถานะ/คำแนะนำพร้อม TREND(W)/TREND(D), `Master Signal Log` สำหรับประวัติแบบ append-only และ `REF.` สำหรับลิงก์ต้นทาง หาก schema ของประวัติเดิมไม่ตรง ระบบต้องหยุด ไม่เขียนทับประวัติ
+
+สถานะ MPTM ที่แสดง: 🟢 `BUY CONFIRMED` เมื่อผ่านเกณฑ์ MPTM และ 1H Trigger ยืนยัน; 🟡 `EARLY/WATCH` เมื่อผ่าน MPTM แต่รอ 1H Trigger; 🟠 `PULLBACK ZONE` เมื่อ W/D/4H/1H เป็น UP แต่ RSI(1H) < 50; 🔴 `OVEREXTENDED` เมื่อ RSI(D) ≥ 70; ⚪ `WAIT/RETEST` เมื่อโครงสร้างยังไม่พร้อม โดยแสดงเฉพาะจำนวนหุ้น
 
 - ใช้มาตรฐานการนำเสนอร่วมกันทุกคำสั่ง: หัวข้อ/metadata ที่คำสั่งนั้นกำหนด → ผลลัพธ์ใน Markdown table ตาม schema ของคำสั่ง → คำเตือนตามจริงท้ายรายงาน คงหัวข้อ ลำดับคอลัมน์ ลำดับแถว และเนื้อหาจาก stdout ให้ครบถ้วน
 - เมื่อแสดงผลในแชต ให้ render ตารางเป็น Markdown จริง ไม่ครอบรายงานด้วย code fence ไม่ตัดทอน/สรุปแทนตาราง และไม่เติมค่าที่ไม่มีในผลการรัน
@@ -123,5 +127,5 @@ Settrade ระบุว่า Sandbox จำกัดการเข้าถ�
 
 ## ขอบเขตความปลอดภัย
 
-- `UPDATE`/`CANDIDATE` อ่าน snapshot จาก Google Sheets เท่านั้น; ไม่มีการเชื่อมต่อโบรกเกอร์หรือคำสั่งซื้อขาย
+- `UPDATE`/`CANDIDATE` ดาวน์โหลด snapshot จาก Google Sheets และเรียก Settrade เฉพาะหุ้นที่แสดงเพื่อดึง Liquidity/ข้อมูลย้อนหลัง; ใช้ read-only market data เท่านั้น ไม่มี API บัญชีหรือคำสั่งซื้อขาย
 - ก่อนพัฒนาการวิเคราะห์หรือซื้อขายจริง ต้องยืนยันแหล่งข้อมูล/สิทธิ์ใช้งาน freshness, benchmark, ปฏิทินตลาด, corporate actions และกฎหลักทรัพย์ พร้อมทดสอบกับข้อมูลที่ตรวจสอบย้อนกลับได้
