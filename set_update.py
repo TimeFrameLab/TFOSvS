@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
@@ -26,6 +27,9 @@ WORKBOOK_PATH = os.path.join(DOWNLOAD_DIR, "All-SET-MTFS.xlsx")
 MAX_WORKBOOK_BYTES = 25 * 1024 * 1024
 SETTRADE_REALTIME_TIMEOUT_SECONDS = 20
 SETTRADE_LIQUIDITY_MAX_DURATION_SECONDS = 120
+SETTRADE_HISTORY_TRADING_DAYS = 20
+SETTRADE_HISTORY_CANDLE_LIMIT = 40
+THAILAND_TIMEZONE = timezone(timedelta(hours=7))
 
 REQUIRED_COLUMNS = (
     "AKA",
@@ -508,6 +512,163 @@ def _collect_settrade_liquidity(
     return results, issues
 
 
+def _collect_historical_turnover_estimates(
+    symbols: list[str],
+    config: dict[str, str],
+    *,
+    max_duration_seconds: Optional[float] = None,
+    investor_factory: Optional[Callable[..., Any]] = None,
+) -> tuple[dict[str, float], list[str]]:
+    if not symbols:
+        return {}, []
+    app_id = config.get("SETTRADE_APP_ID", "").strip()
+    app_secret = config.get("SETTRADE_APP_SECRET", "").strip()
+    if not app_id or not app_secret:
+        missing = [
+            name for name, value in (
+                ("SETTRADE_APP_ID", app_id),
+                ("SETTRADE_APP_SECRET", app_secret),
+            ) if not value
+        ]
+        return {}, ["Historical API: ไม่ได้กำหนด " + ", ".join(missing) + " ใน .env"]
+    if max_duration_seconds is not None and max_duration_seconds <= 0:
+        return {}, ["Historical API: หมดเวลาประมวลผลก่อนเริ่มดึงข้อมูล"]
+
+    expected_errors = (OSError, RuntimeError, TimeoutError, ValueError)
+    try:
+        from requests.exceptions import RequestException
+        from settrade_v2 import Investor
+        from settrade_v2.errors import SettradeError
+    except ImportError as exc:
+        if investor_factory is None:
+            return {}, [f"Historical API: โหลด Settrade SDK ไม่สำเร็จ ({type(exc).__name__})"]
+    else:
+        expected_errors += (RequestException, SettradeError)
+        if investor_factory is None:
+            investor_factory = Investor
+
+    broker_id = config.get("SETTRADE_BROKER_ID", "SANDBOX").strip() or "SANDBOX"
+    app_code = config.get("SETTRADE_APP_CODE", "SANDBOX").strip() or "SANDBOX"
+    started_at = time.monotonic()
+    try:
+        investor = investor_factory(
+            app_id=app_id,
+            app_secret=app_secret,
+            app_code=app_code,
+            broker_id=broker_id,
+            is_auto_queue=False,
+        )
+        market_data = investor.MarketData()
+    except expected_errors as exc:
+        safe_message = str(exc).replace(app_id, "[REDACTED]").replace(app_secret, "[REDACTED]")
+        return {}, [
+            f"Historical API: เชื่อมต่อ Settrade ไม่สำเร็จ ({type(exc).__name__}: {safe_message})"
+        ]
+
+    estimates: dict[str, float] = {}
+    issues: list[str] = []
+    for symbol_index, symbol in enumerate(symbols):
+        if max_duration_seconds is not None:
+            remaining = max_duration_seconds - (time.monotonic() - started_at)
+            if remaining <= 0:
+                issues.append(
+                    f"Historical API: หมดเวลา; ข้าม {len(symbols) - symbol_index} หุ้นที่เหลือ"
+                )
+                break
+        try:
+            response = market_data.get_candlestick(
+                symbol, "1d", limit=SETTRADE_HISTORY_CANDLE_LIMIT
+            )
+        except expected_errors as exc:
+            safe_message = str(exc).replace(app_id, "[REDACTED]").replace(app_secret, "[REDACTED]")
+            issues.append(
+                f"{symbol}: Historical API ล้มเหลว ({type(exc).__name__}: {safe_message})"
+            )
+            continue
+
+        fields = ("time", "close", "volume")
+        if not isinstance(response, dict) or any(
+            not isinstance(response.get(field), list) for field in fields
+        ):
+            issues.append(f"{symbol}: Historical API ส่งโครงสร้างแท่งรายวันไม่ครบ")
+            continue
+        lengths = {len(response[field]) for field in fields}
+        if len(lengths) != 1:
+            issues.append(f"{symbol}: จำนวนข้อมูล time/close/volume ไม่ตรงกัน")
+            continue
+        value_values = response.get("value")
+        value_schema_invalid = not isinstance(value_values, list) or (
+            len(value_values) != len(response["time"])
+        )
+        if value_schema_invalid:
+            value_values = [None] * len(response["time"])
+
+        today = datetime.now(THAILAND_TIMEZONE).date()
+        sessions: list[tuple[float, float, float, Optional[float]]] = []
+        invalid_timestamps = False
+        for timestamp, close_value, volume_value, traded_value in zip(
+            response["time"],
+            response["close"],
+            response["volume"],
+            value_values,
+        ):
+            timestamp_number = _finite_number(timestamp)
+            if timestamp_number is None or timestamp_number <= 0:
+                invalid_timestamps = True
+                continue
+            try:
+                session_date = datetime.fromtimestamp(
+                    timestamp_number, timezone.utc
+                ).astimezone(THAILAND_TIMEZONE).date()
+            except (OverflowError, OSError, ValueError):
+                invalid_timestamps = True
+                continue
+            volume = _finite_number(volume_value)
+            if session_date >= today or volume is None or volume <= 0:
+                continue
+            close = _finite_number(close_value)
+            if close is None or close <= 0:
+                estimate = math.nan
+            else:
+                estimate = close * volume
+            sessions.append(
+                (timestamp_number, estimate, volume, _finite_number(traded_value))
+            )
+
+        if invalid_timestamps:
+            issues.append(f"{symbol}: มี timestamp ใน Historical API ที่อ่านไม่ได้")
+        sessions.sort(key=lambda session: session[0])
+        sessions = sessions[-SETTRADE_HISTORY_TRADING_DAYS:]
+        if len(sessions) < SETTRADE_HISTORY_TRADING_DAYS:
+            issues.append(
+                f"{symbol}: มีวันซื้อขายย้อนหลังที่ใช้ได้เพียง {len(sessions)}/"
+                f"{SETTRADE_HISTORY_TRADING_DAYS} วัน"
+            )
+            continue
+        if any(
+            not math.isfinite(estimate) or estimate <= 0
+            for _, estimate, _, _ in sessions
+        ):
+            issues.append(f"{symbol}: ข้อมูล close/volume ย้อนหลังไม่ครบสำหรับคำนวณ")
+            continue
+
+        estimates[symbol] = sum(
+            estimate for _, estimate, _, _ in sessions
+        ) / len(sessions)
+        value_issues = sum(
+            value is None or value <= 0 for _, _, _, value in sessions
+        )
+        if value_issues or value_schema_invalid:
+            issues.append(
+                f"{symbol}: ฟิลด์ value ย้อนหลังผิดปกติ "
+                f"{value_issues}/{len(sessions)} วัน"
+                + (" หรือโครงสร้างไม่ครบ" if value_schema_invalid else "")
+                + "; "
+                "ใช้ค่า close × volume เป็นค่าประมาณแทน"
+            )
+    return estimates, issues
+
+
 def _classify_update_rows(rows: list, indexes: dict[str, int]) -> dict[str, list]:
     categories: dict[str, list] = {
         "BUY_CONFIRMED": [],
@@ -541,6 +702,7 @@ def _collect_update_liquidity(
     )
     started_at = time.monotonic()
     all_liquidity: dict[str, dict[str, Optional[float]]] = {}
+    history_symbols: list[str] = []
     round_summaries: list[tuple[str, int, int]] = []
     all_issues: list[str] = []
     missing_credentials = [
@@ -557,6 +719,7 @@ def _collect_update_liquidity(
             _display(_cell(row, indexes, "AKA")).upper()
             for row in visible_rows
         ]
+        history_symbols.extend(symbols)
         if missing_credentials:
             liquidity = {}
             issues = [
@@ -581,6 +744,20 @@ def _collect_update_liquidity(
         )
         round_summaries.append((title, complete_count, len(symbols)))
         all_issues.extend(f"{title}: {issue}" for issue in issues)
+
+    history_symbols = list(dict.fromkeys(history_symbols))
+    remaining = max(
+        SETTRADE_LIQUIDITY_MAX_DURATION_SECONDS - (time.monotonic() - started_at),
+        0,
+    )
+    historical_estimates, historical_issues = _collect_historical_turnover_estimates(
+        history_symbols, config, max_duration_seconds=remaining
+    )
+    for symbol, estimate in historical_estimates.items():
+        all_liquidity.setdefault(symbol, {})["avg_turnover_20d_estimate"] = estimate
+    all_issues.extend(
+        f"Historical turnover warning: {issue}" for issue in historical_issues
+    )
     return all_liquidity, round_summaries, all_issues
 
 
@@ -613,6 +790,13 @@ def _format_liquidity(metrics: Optional[dict[str, Optional[float]]]) -> str:
     ) + " / " + (
         f"Ask10 {ask_depth:,.0f}" if ask_depth is not None else "Ask10 N/A"
     )
+
+
+def _format_historical_turnover_estimate(
+    metrics: Optional[dict[str, Optional[float]]],
+) -> str:
+    estimate = _finite_number((metrics or {}).get("avg_turnover_20d_estimate"))
+    return f"≈ ฿{estimate:,.2f}" if estimate is not None else "⚫ N/A"
 
 
 def _print_update_report(
@@ -655,20 +839,21 @@ def _print_update_report(
         print(f"GROUP       : {_display(_cell(row, indexes, 'GROUP'))}")
         print("")
 
-    print(f"🔵 SPECIFIED SET — {len(specified_rows)} รายการ")
+    print(f"🔵 SPECIFIED STOCK — {len(specified_rows)} รายการ")
     columns = (
         "AKA", "GROUP", "RSI(W)", "RSI(1H)", "ราคา",
         "VOL (x/4)", "TREND (x/4)", "CMB (x/4)", "Liquidity",
+        "Avg Turnover 20D*",
     )
     print("| " + " | ".join(columns) + " |")
-    print("|---|---|---:|---:|---:|---|---|---|---|")
+    print("|---|---|---:|---:|---:|---|---|---|---|---:|")
     scored_rows = [
         (symbol, row, _candidate_metrics(row, indexes))
         for symbol, row in specified_rows
     ]
     scored_rows.sort(key=lambda item: -item[2][3])
     if not scored_rows:
-        print("| — | — | — | — | — | — | — | — | — |")
+        print("| " + " | ".join("—" for _ in columns) + " |")
     for symbol, row, metrics in scored_rows:
         volume, trend, combined, _ = metrics
         values = (
@@ -681,6 +866,7 @@ def _print_update_report(
             trend,
             combined,
             _format_liquidity((liquidity or {}).get(symbol)),
+            _format_historical_turnover_estimate((liquidity or {}).get(symbol)),
         )
         print("| " + " | ".join(
             value if index == 0 else _markdown_cell(value)
@@ -801,6 +987,10 @@ def _print_status_table(
                 value = _format_liquidity(
                     (liquidity or {}).get(symbol)
                 )
+            elif column == "Avg Turnover 20D*":
+                value = _format_historical_turnover_estimate(
+                    (liquidity or {}).get(symbol)
+                )
             else:
                 raise ValueError(f"ไม่รองรับคอลัมน์รายงาน: {column}")
             values.append(value if column == "หุ้น" else _markdown_cell(value))
@@ -818,7 +1008,10 @@ def _print_update_status_report(
 
     categories = _classify_update_rows(rows, indexes)
 
-    tabular_columns = ("หุ้น", "GROUP", "RSI(W)", "RSI(D)", "MACD_D", "ราคา", "Liquidity")
+    tabular_columns = (
+        "หุ้น", "GROUP", "RSI(W)", "RSI(D)", "MACD_D", "ราคา", "Liquidity",
+        "Avg Turnover 20D*",
+    )
     _print_status_table(
         f"🟢 BUY CONFIRMED — {len(categories['BUY_CONFIRMED'])} หุ้น",
         categories["BUY_CONFIRMED"], indexes, tabular_columns, liquidity=liquidity,
@@ -830,13 +1023,13 @@ def _print_update_status_report(
     _print_status_table(
         f"🟠 PULLBACK ZONE — {len(categories['PULLBACK_ZONE'])} หุ้น (TOP 10)",
         categories["PULLBACK_ZONE"], indexes,
-        ("หุ้น", "GROUP", "RSI(W)", "RSI(1H)", "ราคา", "VOL (x/4)", "TREND (x/4)", "CMB (x/4)", "Liquidity"),
+        ("หุ้น", "GROUP", "RSI(W)", "RSI(1H)", "ราคา", "VOL (x/4)", "TREND (x/4)", "CMB (x/4)", "Liquidity", "Avg Turnover 20D*"),
         limit=10, liquidity=liquidity,
     )
     _print_status_table(
         f"🔴 OVEREXTENDED — {len(categories['OVEREXTENDED'])} หุ้น",
         categories["OVEREXTENDED"], indexes,
-        ("หุ้น", "GROUP", "Liquidity"), liquidity=liquidity,
+        ("หุ้น", "GROUP", "Liquidity", "Avg Turnover 20D*"), liquidity=liquidity,
     )
     print(f"\n⚪ WAIT/RETEST — {len(categories['WAIT_RETEST'])} หุ้น")
 
@@ -896,11 +1089,14 @@ def _print_candidate_report(
     )
     print(f"\nผลการค้นหา CANDIDATE (PRE-ENTRY-Like Pattern) — {len(candidates)} หุ้น")
     print("ผ่านเกณฑ์ CANDIDATE 7 ข้อ เรียงตาม MACD Delta (W) สูงสุด — รอ 1H Trigger ยืนยัน")
-    columns = ("#", "หุ้น", "GROUP", "ราคา (THB)", "MACD Δ(W)", "Entry Zone (4H)", "1H Trigger", "Liquidity")
+    columns = (
+        "#", "หุ้น", "GROUP", "ราคา (THB)", "MACD Δ(W)",
+        "Entry Zone (4H)", "1H Trigger", "Liquidity", "Avg Turnover 20D*",
+    )
     print("| " + " | ".join(columns) + " |")
-    print("|---:|---|---|---:|---:|---|---|---|")
+    print("|---:|---|---|---:|---:|---|---|---|---:|")
     if not candidates:
-        print("| — | — | — | — | — | — | — | — |")
+        print("| " + " | ".join("—" for _ in columns) + " |")
         return
     for number, row in enumerate(candidates[:20], start=1):
         symbol = _display(_cell(row, indexes, "AKA")).upper()
@@ -913,6 +1109,7 @@ def _print_candidate_report(
             _display(_cell(row, indexes, "ENTRY_ZONE(4H)")),
             _display(_cell(row, indexes, "ENTRY_TRIGGER(1H)")),
             _format_liquidity((liquidity or {}).get(symbol)),
+            _format_historical_turnover_estimate((liquidity or {}).get(symbol)),
         ]
         print("| " + " | ".join(
             value if index == 1 else _markdown_cell(value)
@@ -1026,6 +1223,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             row for row in worksheet.iter_rows(min_row=2, values_only=True)
             if row and any(value is not None and str(value).strip() for value in row)
         ]
+        update_liquidity_summaries = []
         if command == "UPDATE" and selected_symbols:
             selected_set = set(selected_symbols)
             symbols = [
@@ -1033,10 +1231,27 @@ def main(argv: Optional[list[str]] = None) -> int:
                 for row in rows
                 if _display(_cell(row, indexes, "AKA")).upper() in selected_set
             ]
+            liquidity_started_at = time.monotonic()
             liquidity, liquidity_issues = _collect_settrade_liquidity(
                 list(dict.fromkeys(symbols)),
                 config,
                 max_duration_seconds=SETTRADE_LIQUIDITY_MAX_DURATION_SECONDS,
+            )
+            remaining = max(
+                SETTRADE_LIQUIDITY_MAX_DURATION_SECONDS
+                - (time.monotonic() - liquidity_started_at),
+                0,
+            )
+            estimates, historical_issues = _collect_historical_turnover_estimates(
+                list(dict.fromkeys(symbols)), config, max_duration_seconds=remaining
+            )
+            for symbol, estimate in estimates.items():
+                liquidity.setdefault(symbol, {})[
+                    "avg_turnover_20d_estimate"
+                ] = estimate
+            liquidity_issues.extend(
+                f"Historical turnover warning: {issue}"
+                for issue in historical_issues
             )
         elif command == "CANDIDATE":
             candidate_rows = [
@@ -1051,12 +1266,28 @@ def main(argv: Optional[list[str]] = None) -> int:
                 _display(_cell(row, indexes, "AKA")).upper()
                 for row in candidate_rows[:20]
             ]
+            liquidity_started_at = time.monotonic()
             liquidity, liquidity_issues = _collect_settrade_liquidity(
                 candidate_symbols,
                 config,
                 max_duration_seconds=SETTRADE_LIQUIDITY_MAX_DURATION_SECONDS,
             )
-            update_liquidity_summaries = []
+            remaining = max(
+                SETTRADE_LIQUIDITY_MAX_DURATION_SECONDS
+                - (time.monotonic() - liquidity_started_at),
+                0,
+            )
+            estimates, historical_issues = _collect_historical_turnover_estimates(
+                candidate_symbols, config, max_duration_seconds=remaining
+            )
+            for symbol, estimate in estimates.items():
+                liquidity.setdefault(symbol, {})[
+                    "avg_turnover_20d_estimate"
+                ] = estimate
+            liquidity_issues.extend(
+                f"Historical turnover warning: {issue}"
+                for issue in historical_issues
+            )
         elif command == "UPDATE":
             (
                 liquidity,
@@ -1080,12 +1311,20 @@ def main(argv: Optional[list[str]] = None) -> int:
             return 1
         if update_liquidity_summaries:
             _print_update_liquidity_summary(update_liquidity_summaries)
+        if command in {"UPDATE", "CANDIDATE"}:
+            print(
+                "⚠️ Avg Turnover 20D* เป็นค่าประมาณจากราคาปิด × volume "
+                "ของ 20 วันซื้อขายที่มี volume ก่อนวันนี้ ไม่ใช่มูลค่าซื้อขายจริง"
+            )
         if not timestamp_available:
             print("⚠️ ไม่พบคอลัมน์เวลาอ้างอิง จึงตรวจความสดของข้อมูลไม่ได้")
         else:
             print("⚠️ พบคอลัมน์เวลาอ้างอิง แต่ยังไม่ได้ตรวจความสดของข้อมูล")
         for issue in liquidity_issues:
-            print(f"⚠️ Liquidity unavailable: {issue}")
+            if issue.startswith("Historical turnover warning:"):
+                print(f"⚠️ Historical data: {issue.removeprefix('Historical turnover warning: ')}")
+            else:
+                print(f"⚠️ Liquidity unavailable: {issue}")
         print("⚠️ ไม่ได้ตรวจสอบ benchmark, ปฏิทิน/เวลาซื้อขาย, corporate actions, tick size หรือ board lot")
         print("⚠️ ใช้ signals ที่มีใน snapshot เป็นข้อมูลวิเคราะห์; ไม่คำนวณ OHLCV ใหม่และไม่ส่งคำสั่งซื้อขาย")
         if command == "UPDATE" and missing_symbols:

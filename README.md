@@ -74,9 +74,11 @@ GROUP       : <GROUP>
 
 คอลัมน์ `LAST_CANDLE` และ `UPDATED` ต้องมีอยู่และมีค่าในแถว `ADVANC`; หากขาด โปรแกรมจะแจ้งข้อผิดพลาดแทนการแสดงค่าที่คาดเดา `UPDATE` จากนั้นจัดกลุ่มผลเป็น `BUY CONFIRMED`, `EARLY/WATCH`, `PULLBACK ZONE`, `OVEREXTENDED` และ `WAIT/RETEST` ตามข้อมูลใน snapshot โดยเรียง `EARLY/WATCH` ตาม `MACD_HIST_DELTA(W)` และ `PULLBACK ZONE` ตาม Combined Score หุ้นแสดงเป็นลิงก์ `https://www.finnomena.com/stock/<AKA>/advance` และใช้คอลัมน์ `GROUP`
 
-`UPDATE/<AKA>-<AKA>-...` แสดงบล็อก `AKA`, `LAST_CANDLE`, `UPDATED`, `GROUP` สำหรับแต่ละหุ้นตามลำดับที่ขอ แล้วแสดง `🔵 SPECIFIED SET — n รายการ` พร้อมตาราง `AKA | GROUP | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity`; แถวเรียงตามคะแนน CMB มากไปน้อย ส่วน AKA ที่ไม่พบหรือ timestamp ว่างจะแจ้งตามจริงและทำให้คำสั่งจบด้วย error status. ค่า Liquidity ยังคงเป็นตัวเลขดิบที่ได้รับจาก Settrade หรือ `⚫ N/A`; ไม่มีการแสดง HIGH/MEDIUM/LOW โดยไม่มีเกณฑ์ที่ยืนยันแล้ว ระบบไม่บันทึก Workbook ที่ดาวน์โหลดกลับไปยัง Google Sheets
+`UPDATE/<AKA>-<AKA>-...` แสดงบล็อก `AKA`, `LAST_CANDLE`, `UPDATED`, `GROUP` สำหรับแต่ละหุ้นตามลำดับที่ขอ แล้วแสดง `🔵 SPECIFIED STOCK — n รายการ` พร้อมตาราง `AKA | GROUP | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity | Avg Turnover 20D*`; แถวเรียงตามคะแนน CMB มากไปน้อย ส่วน AKA ที่ไม่พบหรือ timestamp ว่างจะแจ้งตามจริงและทำให้คำสั่งจบด้วย error status. ค่า Liquidity ยังคงเป็นตัวเลขดิบที่ได้รับจาก Settrade หรือ `⚫ N/A`; ไม่มีการแสดง HIGH/MEDIUM/LOW โดยไม่มีเกณฑ์ที่ยืนยันแล้ว ระบบไม่บันทึก Workbook ที่ดาวน์โหลดกลับไปยัง Google Sheets
 
-`UPDATE` ปกติจะประมวลผล signals และดึง Liquidity ให้เสร็จก่อนแสดงรายงาน จากนั้นแสดงค่าที่ได้ในคอลัมน์ Liquidity ของตารางหมวดเดียวกับหุ้น โดยไม่มีตาราง refresh แยกด้านล่าง ดึงเฉพาะหุ้นที่ปรากฏในตาราง (`BUY CONFIRMED`, `EARLY/WATCH` TOP 10, `PULLBACK ZONE` TOP 10 และ `OVEREXTENDED`); `WAIT/RETEST` แสดงเพียงจำนวนจึงไม่ถูกดึง Liquidity การดึงเปิด feed ทีละหุ้น (ไม่เกิน 2 subscriptions พร้อมกัน), ปิด feed ก่อนหุ้นถัดไป และจำกัดเวลารวมไว้ 120 วินาที พร้อมสรุปจำนวนข้อมูลครบและแจ้งเหตุขัดข้องหลังตาราง หากข้อมูลไม่พร้อมจะแสดง `⚫ N/A` ในตาราง
+`UPDATE` ปกติและ `UPDATE/<AKA>-...` จะประมวลผล signals และดึงข้อมูลก่อนแสดงรายงาน จากนั้นแสดง Liquidity ปัจจุบันและคอลัมน์ `Avg Turnover 20D*` ในตารางเดียวกัน ไม่มีตาราง refresh แยกด้านล่าง คำสั่ง UPDATE ปกติดึงเฉพาะหุ้นที่ปรากฏในตาราง (`BUY CONFIRMED`, `EARLY/WATCH` TOP 10, `PULLBACK ZONE` TOP 10 และ `OVEREXTENDED`); `WAIT/RETEST` แสดงจำนวนอย่างเดียวและไม่ดึงทั้ง Liquidity ปัจจุบันหรือข้อมูลย้อนหลัง การดึง feed ปัจจุบันทำทีละหุ้น (ไม่เกิน 2 subscriptions พร้อมกัน), ปิด feed ก่อนหุ้นถัดไป; ข้อมูลย้อนหลังใช้ daily candles จาก Settrade สำหรับ 20 วันซื้อขายที่มี volume ก่อนวันนี้ ภายในงบเวลาประมวลผลรวม 120 วินาที หากข้อมูลย้อนหลังไม่ครบจะแสดง `⚫ N/A`
+
+`Avg Turnover 20D*` เป็นค่าประมาณจาก `close × volume` เฉลี่ย 20 วัน ไม่ใช่มูลค่าซื้อขายจริง เนื่องจากการทดสอบ UAT พบว่าฟิลด์ daily `value` เป็นศูนย์แม้มี volume; ระบบจะแจ้งความผิดปกติของฟิลด์นี้และไม่ใช้แทนค่าประมาณโดยไม่เปิดเผย ข้อมูลนี้ยังไม่ใช้จัดระดับ `HIGH/MEDIUM/LOW` และยังต้องยืนยันความหมาย/คุณภาพฟิลด์กับผู้ให้บริการก่อนใช้จริง
 
 `CANDIDATE` ผ่านเมื่อครบทุกเงื่อนไข:
 
@@ -88,7 +90,7 @@ GROUP       : <GROUP>
 6. `EMA9(W) > EMA21(W)`
 7. `SIGNAL_VOLUME` เป็น `BUY` อย่างน้อยหนึ่ง timeframe ใน W/D/4H/1H
 
-รายงานแสดงจำนวนผู้ผ่านทั้งหมดและไม่เกิน 20 แถว เรียงตาม `MACD_HIST_DELTA(W)` จากมากไปน้อย พร้อม `GROUP`, ราคา, `ENTRY_ZONE(4H)` และ `ENTRY_TRIGGER(1H)`.
+รายงานแสดงจำนวนผู้ผ่านทั้งหมดและไม่เกิน 20 แถว เรียงตาม `MACD_HIST_DELTA(W)` จากมากไปน้อย พร้อม `GROUP`, ราคา, `ENTRY_ZONE(4H)`, `ENTRY_TRIGGER(1H)`, Liquidity และ `Avg Turnover 20D*`; ดึงข้อมูลเพิ่มเฉพาะผู้ผ่านที่แสดงใน 20 แถวแรก
 
 ## 💧 แหล่งข้อมูล Liquidity
 
