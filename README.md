@@ -14,6 +14,10 @@ TimeFrame OS (vS) เป็นเครื่องมือสำหรับ�
 >
 > `tfos.sh` เป็น Bash entrypoint; AWK จัดกลุ่ม signals จาก snapshot และ inline Python ใช้เฉพาะอ่าน/เขียน XLSX กับ Settrade API ไม่มีไฟล์ Python ถาวร ระบบไม่คำนวณ OHLCV ใหม่หรือส่งคำสั่งซื้อขาย
 
+### 🔍 กรอบคัดกรอง MPTM
+
+MPTM จัดกลุ่มและคัดกรองหุ้นไทยจาก signals ที่มีอยู่ใน snapshot โดยพิจารณาทิศทางภาพใหญ่ (W → D), การเร่งตัวของโมเมนตัมจาก MACD Histogram Delta, การยืนยันด้วย Volume, การเปลี่ยนโครงสร้างราคา (Reversal → Breakout) และ Relative Strength ตามข้อมูลของหุ้นไทยใน snapshot ส่วน Liquidity Guard แสดงข้อมูลตลาดเพื่อใช้ประกอบการตรวจสอบก่อนพิจารณาซื้อขาย ไม่ได้ส่งคำสั่งซื้อขายหรือรับรองสภาพคล่อง ระบบใช้สถานะ MPTM ตามรายละเอียดด้านล่างของ README
+
 ## 🔔 การเริ่มต้นใช้งาน
 
 ```bash
@@ -43,11 +47,27 @@ SETTRADE_BROKER_ID=SANDBOX
 SETTRADE_APP_CODE=SANDBOX
 ```
 
-การทำงานจริงของระบบคือ: ทุกครั้งที่รัน `UPDATE` หรือ `CANDIDATE` จะอ่าน `.env` ก่อนดึง Liquidity และ historical turnover จาก Settrade ผ่าน `tfos.sh`; หากไม่มี credentials หรือ feed ไม่ตอบกลับ ระบบจะแสดง `⚫ N/A` พร้อมคำเตือน และไม่ใช้ cache หรือค่าคาดเดาแทน รายงานใช้ read-only feeds เท่านั้น: มูลค่าซื้อขายสะสมวันนี้ (`InfoV3.total_value`), ราคา bid/ask ระดับแรก, spread และผลรวมปริมาณ order book bid/ask 10 ระดับ (`BidOfferV3`). แสดงตัวเลขดิบ ไม่จัดระดับสภาพคล่อง; ข้อมูลที่ขาดจะแสดง `N/A` พร้อมแจ้งข้อผิดพลาดหรือ timeout สำหรับ `Avg Turnover 20D*` จะประมาณจาก `close × volume` เฉลี่ย 20 วันและระบุชัดว่าเป็นค่าประมาณ ไม่มีการใช้ PIN/เลขบัญชีหรือเรียก API บัญชี/คำสั่งซื้อขาย เก็บ credentials ไว้ใน `.env` และห้ามแชร์หรือ commit ค่าเหล่านี้
+การทำงานจริงของระบบคือ: ทุกครั้งที่รัน `UPDATE` หรือ `CANDIDATE` จะอ่าน `.env` ก่อนดึง Liquidity และ historical turnover จาก Settrade ผ่าน `tfos.sh`; หากไม่มี credentials หรือ feed ไม่ตอบกลับ ระบบจะแสดง `⚫ N/A` พร้อมคำเตือน และไม่ใช้ cache หรือค่าคาดเดาแทน รายงานใช้ read-only feeds เท่านั้น: มูลค่าซื้อขายสะสมวันนี้ (`InfoV3.total_value`), ราคา bid/ask ระดับแรก, spread และผลรวมปริมาณ order book bid/ask 10 ระดับ (`BidOfferV3`). แสดงตัวเลขดิบ ไม่จัดระดับสภาพคล่อง; ข้อมูลที่ขาดจะแสดง `N/A` พร้อมแจ้งข้อผิดพลาดหรือ timeout รวมถึง HTTP/API code ที่ SDK ส่งกลับ หาก Realtime คืน HTTP `401` จะ login ใหม่และลอง subscription ซ้ำได้หนึ่งครั้ง; จะไม่ retry `502` อัตโนมัติ Settrade historical `Avg Turnover 20D*` ประมาณจาก `close × volume` ของ 20 วันซื้อขายก่อนวันนี้; หากมี Pine CSV ของ TradingView จะใช้ค่า weekly proxy ที่อธิบายไว้ด้านล่างแทน Settrade historical estimate และติดป้ายแหล่งที่มา ไม่มีการใช้ PIN/เลขบัญชีหรือเรียก API บัญชี/คำสั่งซื้อขาย เก็บ credentials ไว้ใน `.env` และห้ามแชร์หรือ commit ค่าเหล่านี้
+
+Settrade ระบุว่า session อาจถูก reset ทุกวันช่วง 03:00–04:00 และ credentials ชุดเดียวกันไม่ควร login ใช้งานพร้อมกันจากหลายโปรแกรม เพราะ login ใหม่อาจทำให้ session ก่อนหน้าใช้ไม่ได้ หากได้ `401` ซ้ำหลัง retry หรือพบ `502` ให้ตรวจสอบ session และการเข้าถึงบริการกับ Settrade; ระบบไม่ login ซ้ำหรือ retry ต่อเนื่อง
 
 > ตรวจสอบจริง: หาก `.env` มีค่า App ID/Secret อยู่แล้ว script จะนำไปใช้โดยอัตโนมัติในรันถัดไป; หากไม่มีค่า หรือ feed ไม่พร้อมใช้งาน จะเป็น `⚫ N/A` และไม่ได้ซ่อนไว้หรือลบโดยอัตโนมัติ
 
 Settrade แจ้งว่า Sandbox จำกัดการเข้าถึงจาก IP ในประเทศไทยตั้งแต่ 16 กันยายน 2026; การเชื่อมต่อจากนอกประเทศไทยอาจใช้งานไม่ได้ รายงานยังคงทำงานและระบุ Liquidity ที่ไม่พร้อมใช้งานเมื่อไม่มี credentials หรือ feed
+
+### TradingView Pine estimate สำหรับข้อมูลย้อนหลัง
+
+ใช้ Pine indicator [tfos_liquidity_estimate.pine](./tradingview/tfos_liquidity_estimate.pine) บนกราฟรายสัปดาห์เพื่อประมาณค่าเฉลี่ย turnover ต่อวันจาก 4 สัปดาห์ที่ปิดแล้ว (`weekly close × weekly volume` รวม 4 สัปดาห์ ÷ 20 วันซื้อขาย) แล้ว export chart data เป็น CSV ด้วยเมนู Download chart data… ของ TradingView:
+
+1. เปิดกราฟ ticker ตลาด SET เช่น `SET:ADVANC` และเลือก timeframe `1W`
+2. เพิ่ม Pine indicator นี้ผ่าน Pine Editor แล้วกด Add to chart; ตรวจว่าแสดงค่า `TV Avg Turnover 20D THB`
+3. โหลดกราฟให้มีอย่างน้อย 5 แท่งรายสัปดาห์ (4 สัปดาห์ปิดแล้วและแท่งสัปดาห์ปัจจุบันถ้ามี) แล้วเลือก Download chart data…
+4. บันทึก CSV เป็น `downloads/tradingview/<AKA>.csv` เช่น `downloads/tradingview/ADVANC.csv` (หนึ่งไฟล์ต่อหนึ่งหุ้นที่จะแสดงในรายงาน)
+5. รัน `./update.sh`, `./update.sh UPDATE/<AKA>-...` หรือ `./candidate.sh` ตามปกติ
+
+ระบบอ่านค่าล่าสุดจากคอลัมน์ `TV Avg Turnover 20D THB` ใน CSV เฉพาะหุ้นที่จะแสดง และแสดงในช่อง Liquidity คู่กับค่า realtime เช่น `⚫ N/A — TradingView estimate ≈ ฿...`; คอลัมน์ `Avg Turnover 20D*` ยังคงแสดงตัวเลข estimate แยกให้ตรวจสอบได้ทั้งในรายงานและ workbook ใต้รายงานจะแจ้งว่า estimate มาจาก Pine CSV ของ TradingView พร้อมรายชื่อหุ้นที่นำมาใช้ ค่า Pine เป็น proxy ของค่าเฉลี่ยต่อวัน โดยเฉลี่ย turnover จาก `weekly close × weekly volume` ของ 4 สัปดาห์ที่ปิดแล้วและหาร 20 (สมมติ 5 วันซื้อขายต่อสัปดาห์) ไม่เทียบเท่าค่าเฉลี่ยจาก 20 แท่งรายวันโดยตรง
+
+CSV เป็นข้อมูลที่ผู้ใช้ export และนำเข้าเอง ไม่ใช่การดึง TradingView API อัตโนมัติ หากไม่มีไฟล์หรือรูปแบบคอลัมน์ไม่ตรง ระบบจะแจ้งเตือนและใช้ Settrade historical estimate (ถ้าดึงได้) หรือ `⚫ N/A` แทน โดยไม่สร้างค่าเอง การ export และข้อมูลที่เข้าถึงได้ขึ้นกับเครื่องมือ/บัญชี TradingView ที่ใช้งาน หากไม่มีเมนู export จะยังนำ estimate เข้า workflow นี้ไม่ได้ ส่วน Bid–Ask และ turnover วันนี้มาจาก Settrade realtime เท่านั้น; เมื่อ feed ใช้ไม่ได้คงเป็น `⚫ N/A` ไม่แทนด้วย estimate ย้อนหลัง
 
 ## 🧭 คำสั่งหลัก
 
@@ -201,7 +221,7 @@ GROUP       : <GROUP>
 
 `UPDATE` ปกติและ `UPDATE/<AKA>-...` จะประมวลผล signals และดึงข้อมูลก่อนแสดงรายงาน จากนั้นแสดง Liquidity ปัจจุบันและคอลัมน์ `Avg Turnover 20D*` ในตารางเดียวกัน ไม่มีตาราง refresh แยกด้านล่าง คำสั่ง UPDATE ปกติดึงเฉพาะหุ้นที่ปรากฏในตาราง (`BUY CONFIRMED`, `EARLY/WATCH` TOP 10, `PULLBACK ZONE` TOP 10 และ `OVEREXTENDED`); `WAIT/RETEST` แสดงจำนวนอย่างเดียวและไม่ดึงทั้ง Liquidity ปัจจุบันหรือข้อมูลย้อนหลัง การดึง feed ปัจจุบันทำทีละหุ้น (ไม่เกิน 2 subscriptions พร้อมกัน), ปิด feed ก่อนหุ้นถัดไป; ข้อมูลย้อนหลังใช้ daily candles จาก Settrade สำหรับ 20 วันซื้อขายที่มี volume ก่อนวันนี้ ภายในงบเวลาประมวลผลรวม 120 วินาที หากข้อมูลย้อนหลังไม่ครบจะแสดง `⚫ N/A`
 
-`Avg Turnover 20D*` เป็นค่าประมาณจาก `close × volume` เฉลี่ย 20 วัน ไม่ใช่มูลค่าซื้อขายจริง เนื่องจากการทดสอบ UAT พบว่าฟิลด์ daily `value` เป็นศูนย์แม้มี volume; ระบบจะแจ้งความผิดปกติของฟิลด์นี้และไม่ใช้แทนค่าประมาณโดยไม่เปิดเผย ข้อมูลนี้ยังไม่ใช้จัดระดับ `HIGH/MEDIUM/LOW` และยังต้องยืนยันความหมาย/คุณภาพฟิลด์กับผู้ให้บริการก่อนใช้จริง
+`Avg Turnover 20D*` จาก Settrade เป็นค่าประมาณ `close × volume` เฉลี่ย 20 วันซื้อขาย ไม่ใช่มูลค่าซื้อขายจริง เนื่องจากการทดสอบ UAT พบว่าฟิลด์ daily `value` เป็นศูนย์แม้มี volume; ระบบจะแจ้งความผิดปกติของฟิลด์นี้และคำนวณค่าประมาณจาก `close × volume` อย่างเปิดเผย หากใช้ TradingView Pine CSV จะใช้ weekly proxy จาก 4 สัปดาห์ที่ปิดแล้วหารด้วย 20 (สมมติ 5 วันซื้อขายต่อสัปดาห์) แทน Settrade historical estimate ซึ่งไม่เทียบเท่าค่าเฉลี่ยจาก 20 แท่งรายวัน ทั้งสองค่าไม่ใช้จัดระดับ `HIGH/MEDIUM/LOW` และยังต้องยืนยันความหมาย/คุณภาพข้อมูลก่อนใช้จริง
 
 `CANDIDATE` ผ่านเมื่อครบทุกเงื่อนไข:
 
@@ -223,6 +243,8 @@ GROUP       : <GROUP>
 - 🔴 `OVEREXTENDED`: RSI(D) ≥ 70
 - ⚪ `WAIT/RETEST`: โครงสร้างยังไม่พร้อม; แสดงเฉพาะจำนวนหุ้น ไม่แสดงรายชื่อหรือตาราง
 
+รายงานในแชตแสดงหุ้นสถานะ `BUY CONFIRMED`, `EARLY/WATCH`, `PULLBACK ZONE` และ `OVEREXTENDED` เป็นตารางพร้อมลิงก์ Finnomena; `WAIT/RETEST` แสดงเฉพาะหัวข้อและจำนวนหุ้น ทั้งหมดอ้างอิง snapshot MPTM ล่าสุด ไม่ใช่คำสั่งซื้อขายอัตโนมัติ ควรรอ 1H Trigger ตามคู่มือก่อนพิจารณาเข้าซื้อ สามารถติดตามการแจ้งเตือน 1H Trigger ได้ที่ [TimeFrame SET Notify](https://t.me/TimeFrameSETnotify)
+
 ทุกครั้งที่รันคำสั่งจะสร้าง/อัปเดต `downloads/All-SET-MTFS_output.xlsx` โดยมีสามชีท:
 
 1. `Latest Snapshot` — signals ล่าสุด, สถานะ MPTM, คำแนะนำ, TREND(W)/TREND(D) และข้อมูล Liquidity ที่ดึงได้
@@ -239,7 +261,7 @@ GROUP       : <GROUP>
 2. **ผู้ให้บริการข้อมูลตลาดหรือ API ของโบรกเกอร์** — ใช้ได้เมื่อผู้ให้บริการรองรับหลักทรัพย์ SET, มีข้อมูลและความถี่ที่ต้องการ และอนุญาตให้ใช้ข้อมูลในรายงานนี้
 3. **คอลัมน์ใน Reference Sheet** — เหมาะกับ workflow ปัจจุบัน หากเพิ่มข้อมูลจากแหล่งที่ระบุชัดเจน เช่น มูลค่าซื้อขายเฉลี่ยย้อนหลังและเวลาอ้างอิง แล้วส่งต่อมาใน snapshot
 
-ระบบปัจจุบันไม่จัดระดับ HIGH/MEDIUM/LOW และไม่ดึงค่าเก่ามาทดแทนข้อมูลที่ขาด ห้ามอนุมาน Liquidity จาก `SIGNAL_VOLUME` หรือใช้ข้อมูลจากหน้าแสดงกราฟแทนข้อมูลตลาดที่ตรวจสอบแหล่งที่มาได้
+ระบบปัจจุบันไม่จัดระดับ HIGH/MEDIUM/LOW และไม่ดึงค่าเก่ามาทดแทนข้อมูลที่ขาด ห้ามอนุมาน Liquidity จาก `SIGNAL_VOLUME`; Pine CSV ที่ผู้ใช้ export เองเป็น historical estimate ที่ติดป้ายแหล่งข้อมูล ไม่ใช่ข้อมูล realtime และไม่ใช้แทน Settrade Bid–Ask/turnover วันนี้
 
 ## 🛡️ ขอบเขตและข้อควรระวัง
 

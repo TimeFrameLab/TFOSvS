@@ -69,9 +69,13 @@ TSV="$TMP_DIR/snapshot.tsv"
 TARGETS="$TMP_DIR/targets.txt"
 API_TSV="$TMP_DIR/market.tsv"
 API_WARNINGS="$TMP_DIR/api-warnings.txt"
+TV_TSV="$TMP_DIR/tradingview.tsv"
+TV_WARNINGS="$TMP_DIR/tradingview-warnings.txt"
 CLASSIFIED="$TMP_DIR/classified.tsv"
 : > "$API_TSV"
 : > "$API_WARNINGS"
+: > "$TV_TSV"
+: > "$TV_WARNINGS"
 
 echo "📥 ดาวน์โหลดข้อมูลล่าสุดจาก Reference Sheet..."
 curl --fail --location --silent --show-error --max-time 30 \
@@ -225,6 +229,12 @@ function sort(cat,i,j,r) {
 function quote_md(s) { gsub(/[|]/,"\\|",s); return s }
 function link(s) { return "[" s "](https://www.finnomena.com/stock/" s "/advance)" }
 function metric(s,field_no,fallback) { return api[toupper(s),field_no]!=""?api[toupper(s),field_no]:fallback }
+function liquidity(s,live,estimate) {
+ s=toupper(s)
+ live=api[s,2]!=""?api[s,2]:"⚫ N/A"
+ estimate=api[s,3]
+ return api[s,4]=="TRADINGVIEW" ? live " — TradingView estimate " estimate : live
+}
 function row(r,cat,s,vol,tr,cm,i,t) {
  s=toupper(v(r,"AKA"))
  if(cat=="PULLBACK") {
@@ -235,11 +245,11 @@ function row(r,cat,s,vol,tr,cm,i,t) {
    tr=tr (toupper(v(r,"TREND(" t ")"))=="UP"?"🟢":"🔴")
    cm=cm (buy(r,t) && toupper(v(r,"TREND(" t ")"))=="UP"?"✅":"❌")
   }
-  printf "| %s | %s | %s | %s | %.4f | %s (%d/4) | %s (%d/4) | %s (%d/4) | %s | %s |\n",link(s),quote_md(v(r,"GROUP")),quote_md(v(r,"RSI(W)")),quote_md(v(r,"RSI(1H)")),n(r,"PRICE"),vol,scorebuy(r),tr,scoreup(r),cm,cmb(r),metric(s,2,"⚫ N/A"),metric(s,3,"⚫ N/A")
+  printf "| %s | %s | %s | %s | %.4f | %s (%d/4) | %s (%d/4) | %s (%d/4) | %s | %s |\n",link(s),quote_md(v(r,"GROUP")),quote_md(v(r,"RSI(W)")),quote_md(v(r,"RSI(1H)")),n(r,"PRICE"),vol,scorebuy(r),tr,scoreup(r),cm,cmb(r),liquidity(s),metric(s,3,"⚫ N/A")
  } else if(cat=="OVEREXTENDED") {
-  printf "| %s | %s | %s | %s |\n",link(s),quote_md(v(r,"GROUP")),metric(s,2,"⚫ N/A"),metric(s,3,"⚫ N/A")
+  printf "| %s | %s | %s | %s |\n",link(s),quote_md(v(r,"GROUP")),liquidity(s),metric(s,3,"⚫ N/A")
  } else {
-  printf "| %s | %s | %s | %s | %s | %s | %s | %s |\n",link(s),quote_md(v(r,"GROUP")),quote_md(v(r,"RSI(W)")),quote_md(v(r,"RSI(D)")),quote_md(v(r,"MACD_HIST_DELTA(W)")),v(r,"PRICE"),metric(s,2,"⚫ N/A"),metric(s,3,"⚫ N/A")
+  printf "| %s | %s | %s | %s | %s | %s | %s | %s |\n",link(s),quote_md(v(r,"GROUP")),quote_md(v(r,"RSI(W)")),quote_md(v(r,"RSI(D)")),quote_md(v(r,"MACD_HIST_DELTA(W)")),v(r,"PRICE"),liquidity(s),metric(s,3,"⚫ N/A")
  }
 }
 function scorebuy(r,t,i,s) { s=0; for(i=1;i<=4;i++){t=(i==1?"W":i==2?"D":i==3?"4H":"1H"); if(buy(r,t))s++} return s}
@@ -256,7 +266,7 @@ function signals(r,kind,i,t,result,count) {
 }
 function specified_row(r,s) {
  s=toupper(v(r,"AKA"))
- printf "| %s | %s | %s | %s | %.4f | %s | %s | %s | %s | %s |\n",link(s),v(r,"GROUP"),v(r,"RSI(W)"),v(r,"RSI(1H)"),n(r,"PRICE"),signals(r,"VOL"),signals(r,"TREND"),signals(r,"CMB"),metric(s,2,"⚫ N/A"),metric(s,3,"⚫ N/A")
+ printf "| %s | %s | %s | %s | %.4f | %s | %s | %s | %s | %s |\n",link(s),v(r,"GROUP"),v(r,"RSI(W)"),v(r,"RSI(1H)"),n(r,"PRICE"),signals(r,"VOL"),signals(r,"TREND"),signals(r,"CMB"),liquidity(s),metric(s,3,"⚫ N/A")
 }
 function placeholder(count,i) { printf "|"; for(i=1;i<=count;i++)printf " — |"; print "" }
 function header_normal() { print "| หุ้น | GROUP | RSI(W) | RSI(D) | MACD_D | ราคา | Liquidity | Avg Turnover 20D* |"; print "|---|---|---:|---:|---:|---:|---|---:|" }
@@ -299,7 +309,7 @@ END {
   }
   exit
  }
- if(api_file!=""){while((getline line < api_file)>0){split(line,fields,"\t");api[toupper(fields[1]),2]=fields[2];api[toupper(fields[1]),3]=fields[3]}close(api_file)}
+ if(api_file!=""){while((getline line < api_file)>0){split(line,fields,"\t");api[toupper(fields[1]),2]=fields[2];api[toupper(fields[1]),3]=fields[3];api[toupper(fields[1]),4]=fields[4]}close(api_file)}
  if(action=="classified"){for(r=1;r<=rows;r++)print toupper(v(r,"AKA")),status_by_symbol[toupper(v(r,"AKA"))];exit}
  if(command=="UPDATE" && selected!=""){
   count=split(selected,syms,"-")
@@ -311,7 +321,7 @@ END {
   for(i=1;i<=count;i++)specified_row(selected_rows[i])
   exit
  }
- if(command=="CANDIDATE"){print "ผลการค้นหา CANDIDATE (PRE-ENTRY-Like Pattern) — " (cnt["CANDIDATE"]+0) " หุ้น";print "ผ่านเกณฑ์ CANDIDATE 7 ข้อ เรียงตาม MACD Delta (W) สูงสุด — รอ 1H Trigger ยืนยัน";print "| # | หุ้น | GROUP | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity | Avg Turnover 20D* |";print "|---:|---|---|---:|---:|---|---|---|---:|";if(!cnt["CANDIDATE"])placeholder(9);for(i=1;i<=20&&i<=cnt["CANDIDATE"];i++){r=list["CANDIDATE",i];s=toupper(v(r,"AKA"));printf "| %d | %s | %s | %s | %s | %s | %s | %s | %s |\n",i,link(s),v(r,"GROUP"),v(r,"PRICE"),v(r,"MACD_HIST_DELTA(W)"),v(r,"ENTRY_ZONE(4H)"),v(r,"ENTRY_TRIGGER(1H)"),metric(s,2,"⚫ N/A"),metric(s,3,"⚫ N/A")}exit}
+ if(command=="CANDIDATE"){print "ผลการค้นหา CANDIDATE (PRE-ENTRY-Like Pattern) — " (cnt["CANDIDATE"]+0) " หุ้น";print "ผ่านเกณฑ์ CANDIDATE 7 ข้อ เรียงตาม MACD Delta (W) สูงสุด — รอ 1H Trigger ยืนยัน";print "| # | หุ้น | GROUP | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity | Avg Turnover 20D* |";print "|---:|---|---|---:|---:|---|---|---|---:|";if(!cnt["CANDIDATE"])placeholder(9);for(i=1;i<=20&&i<=cnt["CANDIDATE"];i++){r=list["CANDIDATE",i];s=toupper(v(r,"AKA"));printf "| %d | %s | %s | %s | %s | %s | %s | %s | %s |\n",i,link(s),v(r,"GROUP"),v(r,"PRICE"),v(r,"MACD_HIST_DELTA(W)"),v(r,"ENTRY_ZONE(4H)"),v(r,"ENTRY_TRIGGER(1H)"),liquidity(s),metric(s,3,"⚫ N/A")}exit}
  r=symbol_row["ADVANC"];print "";print "สรุปข้อมูลหุ้น";print "AKA         : ADVANC 🔔";print "LAST_CANDLE : " v(r,"LAST_CANDLE");print "UPDATED     : " v(r,"UPDATED");print "GROUP       : " v(r,"GROUP")
  emit_report("BUY_CONFIRMED","🟢 BUY CONFIRMED — " (cnt["BUY_CONFIRMED"]+0) " หุ้น",0,"NORMAL")
  emit_report("EARLY_WATCH","🟡 EARLY/WATCH — " (cnt["EARLY_WATCH"]+0) " หุ้น (TOP 10)",10,"NORMAL")
@@ -323,11 +333,86 @@ AWK
 
 awk -F '\t' -v action=targets -v command="$COMMAND" -v selected="$SELECTED" -f "$TMP_DIR/mptm.awk" "$TSV" > "$TARGETS"
 if [[ "$COMMAND" == CANDIDATE || "$COMMAND" == UPDATE || "$SELECTED" != "" ]]; then
-  python3 - "$ENV_FILE" "$TARGETS" "$API_TSV" "$API_WARNINGS" <<'PY'
+  TV_DIR="$DOWNLOAD_DIR/tradingview"
+  while IFS= read -r symbol || [[ -n "$symbol" ]]; do
+    [[ -n "$symbol" ]] || continue
+    tv_csv="$TV_DIR/$symbol.csv"
+    if [[ ! -f "$tv_csv" ]]; then
+      echo "ไม่มี TradingView CSV สำหรับ $symbol; คาดหวังไฟล์ $TV_DIR/<AKA>.csv" >> "$TV_WARNINGS"
+      continue
+    fi
+    if ! awk -v symbol="$symbol" '
+      function parse_csv(line, fields, delimiter,    i, ch, quoted, field, count) {
+        for (i in fields) delete fields[i]
+        count=1; field=""; quoted=0
+        for (i=1; i<=length(line); i++) {
+          ch=substr(line,i,1)
+          if (ch=="\"") {
+            if (quoted && substr(line,i+1,1)=="\"") { field=field "\""; i++ }
+            else quoted=!quoted
+          } else if (ch==delimiter && !quoted) {
+            fields[count++]=field; field=""
+          } else field=field ch
+        }
+        fields[count]=field
+        return count
+      }
+      {
+        line=$0
+        if (!header_found && NR<=20) {
+          comma_count=parse_csv(line,comma_fields,",")
+          semicolon_count=parse_csv(line,semicolon_fields,";")
+          tab_count=parse_csv(line,tab_fields,"\t")
+          delimiter=","; field_count=comma_count
+          if (semicolon_count>field_count) { delimiter=";"; field_count=semicolon_count }
+          if (tab_count>field_count) { delimiter="\t"; field_count=tab_count }
+          parse_csv(line,fields,delimiter)
+          time_count=0; matched_column=0
+          for (i=1; i<=field_count; i++) {
+            cell=tolower(fields[i]); gsub(/^[[:space:]]+|[[:space:]]+$/,"",cell)
+            sub(/^[^[:alnum:]]+/,"",cell)
+            if (cell=="time" || cell=="date" || cell=="datetime") time_count++
+            if (index(cell,"tv avg turnover 20d thb")) {
+              matched_column=i; matched_count++
+            }
+          }
+          if (time_count && matched_count==1) {
+            header_found=1; value_column=matched_column; matched_count=0
+            next
+          }
+          matched_count=0
+          next
+        }
+        if (header_found) {
+          field_count=parse_csv(line,fields,delimiter)
+          if (value_column>field_count) next
+          value=fields[value_column]
+          gsub(/,/,"",value)
+          gsub(/^[[:space:]]+|[[:space:]]+$/,"",value)
+          if (value ~ /^[-+]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][-+]?[0-9]+)?$/ && value+0>0)
+            estimate=value+0
+        }
+      }
+      END {
+        if (!header_found) {
+          print symbol ": ไม่พบคอลัมน์เวลาและ TV Avg Turnover 20D THB" > "/dev/stderr"
+          exit 1
+        }
+        if (estimate<=0) {
+          print symbol ": ไม่มีค่า estimate ที่เป็นตัวเลขบวก" > "/dev/stderr"
+          exit 1
+        }
+        printf "%s\t%.10f\n",symbol,estimate
+      }
+    ' "$tv_csv" >> "$TV_TSV" 2>> "$TV_WARNINGS"; then
+      :
+    fi
+  done < "$TARGETS"
+  python3 - "$ENV_FILE" "$TARGETS" "$API_TSV" "$API_WARNINGS" "$TV_TSV" "$TV_WARNINGS" <<'PY'
 import os, sys, time, threading, math
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-env_path, target_path, output_path, warning_path = sys.argv[1:]
+env_path, target_path, output_path, warning_path, tv_path, tv_warning_path = sys.argv[1:]
 config={}
 for line in Path(env_path).read_text(encoding="utf-8").splitlines():
     line=line.strip()
@@ -336,6 +421,20 @@ for line in Path(env_path).read_text(encoding="utf-8").splitlines():
 symbols=list(dict.fromkeys(s.strip().upper() for s in Path(target_path).read_text().splitlines() if s.strip()))
 warnings=[]
 metrics={}
+tv_estimates={}
+def finite_number(value):
+    try:
+        number=float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError,ValueError,OverflowError):
+        return None
+for line in Path(tv_path).read_text(encoding="utf-8").splitlines():
+    symbol,value=line.split("\t",1)
+    estimate=finite_number(value)
+    if estimate is not None and estimate>0:
+        tv_estimates[symbol]=f"≈ ฿{estimate:,.2f}"
+with Path(tv_warning_path).open(encoding="utf-8") as tv_warnings:
+    warnings.extend(line.rstrip("\n") for line in tv_warnings if line.strip())
 app_id=config.get("SETTRADE_APP_ID",""); secret=config.get("SETTRADE_APP_SECRET","")
 if symbols and (not app_id or not secret):
     warnings.append("ไม่ได้กำหนด " + ", ".join(k for k,v in (("SETTRADE_APP_ID",app_id),("SETTRADE_APP_SECRET",secret)) if not v) + " ใน .env")
@@ -347,18 +446,26 @@ elif symbols:
     except ImportError as exc:
         warnings.append(f"โหลด Settrade SDK ไม่สำเร็จ ({type(exc).__name__})")
     else:
-        def finite_number(value):
-            try:
-                number=float(value)
-                return number if math.isfinite(number) else None
-            except (TypeError,ValueError,OverflowError):
-                return None
-        investor=Investor(app_id=app_id, app_secret=secret,
-            app_code=config.get("SETTRADE_APP_CODE","SANDBOX") or "SANDBOX",
-            broker_id=config.get("SETTRADE_BROKER_ID","SANDBOX") or "SANDBOX",
-            is_auto_queue=False)
+        app_code=config.get("SETTRADE_APP_CODE","SANDBOX") or "SANDBOX"
+        broker_id=config.get("SETTRADE_BROKER_ID","SANDBOX") or "SANDBOX"
+        def settrade_error(exc):
+            details=[]
+            status=getattr(exc,"status_code",None)
+            code=getattr(exc,"code",None)
+            message=str(exc).replace(app_id,"[REDACTED]").replace(secret,"[REDACTED]")
+            if status is not None: details.append(f"HTTP {status}")
+            if code: details.append(str(code))
+            if message: details.append(message)
+            return ": ".join(details) or type(exc).__name__
+        try:
+            investor=Investor(app_id=app_id, app_secret=secret,
+                app_code=app_code, broker_id=broker_id, is_auto_queue=False)
+        except (OSError,RuntimeError,TimeoutError,ValueError,RequestException,SettradeError) as exc:
+            investor=None
+            warnings.append("เชื่อมต่อ Settrade/login ไม่สำเร็จ: " + settrade_error(exc))
         started=time.monotonic()
-        for symbol in symbols:
+        session_relogin_used=False
+        for symbol in symbols if investor is not None else []:
             state={"info":None,"book":None}
             event=threading.Event()
             feeds=[]
@@ -366,6 +473,9 @@ elif symbols:
                 if message.get("is_success") and isinstance(message.get("data"),dict):
                     value=finite_number(message["data"].get("total_value"))
                     if value is not None and value >= 0: state["info"]={"total_value":value}
+                else:
+                    state["feed_error"]=str(message.get("message") or "info feed rejected")
+                    event.set()
                 event.set() if state["info"] is not None and state["book"] is not None else None
             def book_cb(message):
                 if message.get("is_success") and isinstance(message.get("data"),dict):
@@ -383,18 +493,40 @@ elif symbols:
                         parsed["bid_price1"]=bid_price
                         parsed["ask_price1"]=ask_price
                         state["book"]=parsed
+                    else:
+                        state["feed_error"]="invalid bid/offer data"
+                else:
+                    state["feed_error"]=str(message.get("message") or "bid/offer feed rejected")
+                    event.set()
                 event.set() if state["info"] is not None and state["book"] is not None else None
             try:
-                realtime=investor.RealtimeDataConnection()
-                a=realtime.subscribe_price_info(symbol,info_cb); feeds.append(a); a.start()
-                b=realtime.subscribe_bid_offer(symbol,book_cb); feeds.append(b); b.start()
+                for attempt in range(2):
+                    try:
+                        realtime=investor.RealtimeDataConnection()
+                        a=realtime.subscribe_price_info(symbol,info_cb); feeds.append(a); a.start()
+                        b=realtime.subscribe_bid_offer(symbol,book_cb); feeds.append(b); b.start()
+                        break
+                    except SettradeError as exc:
+                        for feed in feeds:
+                            try: feed.stop()
+                            except (OSError,RuntimeError) as stop_exc: warnings.append(f"{symbol}: ปิด feed ไม่สำเร็จ ({type(stop_exc).__name__})")
+                        feeds=[]
+                        if getattr(exc,"status_code",None)!=401 or session_relogin_used or attempt>0:
+                            raise
+                        session_relogin_used=True
+                        warnings.append(f"{symbol}: Settrade session ตอบ 401; login ใหม่และลอง realtime ซ้ำหนึ่งครั้ง")
+                        investor=Investor(app_id=app_id,app_secret=secret,
+                            app_code=app_code,broker_id=broker_id,is_auto_queue=False)
                 event.wait(max(0,min(20,120-(time.monotonic()-started))))
             except (OSError,RuntimeError,TimeoutError,ValueError,RequestException,SettradeError) as exc:
-                warnings.append(f"{symbol}: realtime feed ล้มเหลว ({type(exc).__name__})")
+                warnings.append(f"{symbol}: realtime feed ล้มเหลว ({settrade_error(exc)})")
             finally:
                 for feed in feeds:
                     try: feed.stop()
                     except (OSError,RuntimeError) as exc: warnings.append(f"{symbol}: ปิด feed ไม่สำเร็จ ({type(exc).__name__})")
+            if state.get("feed_error"):
+                safe_feed_error=state["feed_error"].replace(app_id,"[REDACTED]").replace(secret,"[REDACTED]")
+                warnings.append(f"{symbol}: Settrade ปฏิเสธ/ส่งข้อมูล realtime ไม่ถูกต้อง ({safe_feed_error})")
             info=state["info"] or {}; book=state["book"] or {}
             if state["info"] is None: warnings.append(f"{symbol}: ไม่ได้รับข้อมูลมูลค่าซื้อขายที่ถูกต้อง")
             if state["book"] is None: warnings.append(f"{symbol}: ไม่ได้รับข้อมูล bid/offer ที่ถูกต้อง")
@@ -419,12 +551,16 @@ elif symbols:
                 liq=f"Turnover {money(turnover)} | Bid1 {money(bid)} / Ask1 {money(ask)} | Spread {money(spread)} | Bid10 {sum(bids):,.0f} / Ask10 {sum(asks):,.0f}"
                 metrics[symbol]=[liq,"⚫ N/A"]
         try:
+            if investor is None:
+                raise RuntimeError("ข้าม Historical API เพราะเชื่อมต่อ Settrade/login ไม่สำเร็จ")
             market=investor.MarketData()
             today=datetime.now(timezone(timedelta(hours=7))).date()
             for symbol in symbols:
                 if time.monotonic()-started>=120:
                     warnings.append("Historical API: หมดเวลาประมวลผล; หุ้นที่เหลือเป็น N/A")
                     break
+                if symbol in tv_estimates:
+                    continue
                 try: candles=market.get_candlestick(symbol,"1d",limit=40)
                 except (OSError,RuntimeError,TimeoutError,ValueError,RequestException,SettradeError) as exc:
                     warnings.append(f"{symbol}: Historical API ล้มเหลว ({type(exc).__name__})")
@@ -459,9 +595,16 @@ elif symbols:
                     warnings.append(f"Historical data: {symbol}: ฟิลด์ value ผิดปกติ {invalid_values}/20 วัน; ใช้ close × volume เป็นค่าประมาณแทน")
         except (OSError,RuntimeError,TimeoutError,ValueError,RequestException,SettradeError) as exc:
             warnings.append(f"Historical API ไม่พร้อมใช้งาน ({type(exc).__name__})")
+for symbol,estimate in tv_estimates.items():
+    values=metrics.setdefault(symbol,["⚫ N/A","⚫ N/A",""])
+    while len(values)<3: values.append("")
+    values[1]=estimate
+    values[2]="TRADINGVIEW"
 with open(output_path,"w",encoding="utf-8") as out:
-    for symbol,fields in metrics.items(): out.write(symbol+"\t"+"\t".join(fields)+"\n")
+    for symbol,fields in metrics.items(): out.write(symbol+"\t"+"\t".join(fields[:2])+"\t"+(fields[2] if len(fields)>2 else "")+"\n")
 with open(warning_path,"w",encoding="utf-8") as out:
+    if tv_estimates:
+        out.write("TradingView Pine estimate: CSV export; mean of close × volume for the previous 20 completed daily bars. Symbols: "+", ".join(sorted(tv_estimates))+"\n")
     for warning in warnings: out.write(warning.replace("\n"," ")+"\n")
 PY
 fi
@@ -490,7 +633,7 @@ for line in open(classified_path,encoding="utf-8"):
 market={}
 for line in open(api_path,encoding="utf-8"):
     parts=line.rstrip("\n").split("\t")
-    if len(parts)>=3: market[parts[0]]=(parts[1],parts[2])
+    if len(parts)>=3: market[parts[0]]=(parts[1],parts[2],parts[3] if len(parts)>3 else "")
 report_wb=openpyxl.load_workbook(output) if os.path.exists(output) else openpyxl.Workbook()
 for extra in list(report_wb.sheetnames):
     if extra not in ("Latest Snapshot","Master Signal Log","REF."):
@@ -531,7 +674,9 @@ for r in rows:
     def get(k): return r[idx[k]] if k in idx and idx[k]<len(r) else None
     symbol=str(get("AKA") or "").upper()
     st=status.get(symbol,"WAIT_RETEST")
-    liq,avg=market.get(symbol,("⚫ N/A","⚫ N/A"))
+    liq,avg,source=market.get(symbol,("⚫ N/A","⚫ N/A",""))
+    if source=="TRADINGVIEW":
+        liq += " — TradingView estimate " + avg
     vals=[get(k) for k in selected_cols]
     advice={"BUY_CONFIRMED":"รอพิจารณาตาม 1H Trigger; ไม่ใช่คำสั่งซื้อขาย","EARLY_WATCH":"เฝ้ารอ 1H Trigger","PULLBACK_ZONE":"ติดตามการพักฐาน","OVEREXTENDED":"หลีกเลี่ยงการไล่ราคา","WAIT_RETEST":"รอ RETEST/สัญญาณยืนยัน"}.get(st,"รอตรวจสอบ")
     latest.append(vals+[st,advice,liq,avg])
@@ -575,7 +720,7 @@ PY
 if [[ -s "$API_WARNINGS" ]]; then
   while IFS= read -r warning || [[ -n "$warning" ]]; do echo "⚠️ $warning"; done < "$API_WARNINGS"
 fi
-echo "⚠️ Avg Turnover 20D* เป็นค่าประมาณจากราคาปิด × volume เฉลี่ย 20 วันซื้อขายก่อนวันนี้ ไม่ใช่มูลค่าซื้อขายจริง"
+echo "⚠️ Avg Turnover 20D* เป็นค่าประมาณ ไม่ใช่มูลค่าซื้อขายจริง: Settrade ใช้ close × volume เฉลี่ย 20 วันซื้อขาย; TradingView ใช้ proxy จาก weekly close × volume เฉลี่ย 4 สัปดาห์ที่ปิดแล้ว ÷ 5"
 echo "⚠️ พบคอลัมน์เวลาอ้างอิง แต่ยังไม่ได้ตรวจความสดของข้อมูล"
 echo "⚠️ ไม่ได้ตรวจสอบ benchmark, ปฏิทิน/เวลาซื้อขาย, corporate actions, tick size หรือ board lot"
 echo "⚠️ ใช้ signals จาก snapshot; ไม่ส่งคำสั่งซื้อขาย"

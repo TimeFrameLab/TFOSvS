@@ -79,9 +79,15 @@
 
 `WAIT/RETEST` แสดงเฉพาะหัวข้อและจำนวนหุ้น ไม่มีรายชื่อหรือตาราง และไม่เรียก Settrade สำหรับกลุ่มนี้
 
+### TradingView Pine estimate
+
+สำหรับ historical turnover estimate สามารถใช้ Pine indicator ใน [tradingview/tfos_liquidity_estimate.pine](./tradingview/tfos_liquidity_estimate.pine) บนกราฟ ticker `SET:<AKA>` ที่ timeframe `1W` แล้วใช้เมนู Download chart data… export CSV โดยกราฟควรมีอย่างน้อย 5 แท่งรายสัปดาห์เพื่อให้มี 4 สัปดาห์ที่ปิดแล้ว บันทึกไฟล์แยกตามหุ้นที่จะแสดงไว้ใน `downloads/tradingview/<AKA>.csv` เช่น `downloads/tradingview/ADVANC.csv` โดยคงคอลัมน์ plot ชื่อ `TV Avg Turnover 20D THB` ไว้
+
+ระบบใช้ค่าล่าสุดจาก Pine plot เป็น proxy ค่าเฉลี่ย turnover ต่อวัน โดยเฉลี่ย `weekly close × weekly volume` ของ 4 สัปดาห์ที่ปิดแล้วและหารด้วย 20 (สมมติ 5 วันซื้อขายต่อสัปดาห์; ไม่ใช่ค่าเฉลี่ยจาก 20 แท่งรายวันโดยตรง) แสดงใน Liquidity ต่อท้าย realtime เช่น `⚫ N/A — TradingView estimate ≈ ฿...` และแสดง `Avg Turnover 20D*` แยกด้วย ใต้รายงานระบุแหล่ง TradingView และ ticker ที่ใช้ CSV นี้เป็น manual export ไม่ใช่ TradingView API; ถ้าไฟล์ไม่มี/อ่านไม่ได้ จะเตือนและใช้ Settrade historical estimate หากมี มิฉะนั้นเป็น `⚫ N/A` ค่า estimate ไม่ใช้ทดแทน Bid–Ask หรือ turnover วันนี้จาก Realtime และจะแสดง estimate ใน workbook ด้วย
+
 `UPDATE` ประมวลผล signals และดึงข้อมูลก่อนเริ่มแสดงรายงาน แล้วรวม Liquidity ปัจจุบันและ `Avg Turnover 20D*` ในตาราง ไม่แสดงตาราง refresh แยกด้านล่าง คำสั่งปกติดึงเฉพาะหุ้นที่แสดงใน `BUY CONFIRMED`, `EARLY/WATCH` สูงสุด 10, `PULLBACK ZONE` สูงสุด 10 และ `OVEREXTENDED`; `WAIT/RETEST` แสดงจำนวนอย่างเดียวและไม่ดึงทั้ง Liquidity ปัจจุบันหรือข้อมูลย้อนหลัง ระบบขอ feed ปัจจุบันทีละหุ้น เปิดไม่เกิน 2 subscriptions พร้อมกันและปิดก่อนหุ้นถัดไป ส่วนข้อมูลย้อนหลังใช้ daily candles จาก Settrade สำหรับ 20 วันซื้อขายที่มี volume ก่อนวันนี้ ภายในงบเวลารวม 120 วินาที; เมื่อข้อมูลไม่ครบจะแสดง `⚫ N/A` พร้อมคำเตือน
 
-`Avg Turnover 20D*` คำนวณเป็นค่าประมาณจาก `close × volume` เฉลี่ย 20 วัน ไม่ใช่มูลค่าซื้อขายจริง เนื่องจากการทดลอง UAT พบ daily field `value` เป็นศูนย์แม้มี volume ระบบจะแจ้งจำนวนข้อมูลที่ฟิลด์นี้ผิดปกติและแสดงค่าประมาณอย่างเปิดเผย ค่านี้ไม่ใช้จัดระดับ `HIGH/MEDIUM/LOW`; ควรยืนยันความหมายและคุณภาพข้อมูลกับ Settrade ก่อนใช้จริง
+Settrade historical `Avg Turnover 20D*` คำนวณเป็นค่าประมาณจาก `close × volume` เฉลี่ย 20 วันซื้อขายก่อนวันนี้ ไม่ใช่มูลค่าซื้อขายจริง เนื่องจากการทดลอง UAT พบ daily field `value` เป็นศูนย์แม้มี volume ระบบจะแจ้งจำนวนข้อมูลที่ฟิลด์นี้ผิดปกติและแสดงค่าประมาณอย่างเปิดเผย ส่วน TradingView Pine ใช้ proxy จาก 4 สัปดาห์ที่ปิดแล้วหาร 20 โดยสมมติ 5 วันซื้อขายต่อสัปดาห์ จึงไม่ใช่ค่าเฉลี่ยจาก 20 แท่งรายวันโดยตรง ค่านี้ไม่ใช้จัดระดับ `HIGH/MEDIUM/LOW`; ควรยืนยันความหมายและคุณภาพข้อมูลกับ Settrade ก่อนใช้จริง เมื่อมี TradingView CSV ระบบใช้ estimate จาก Pine แทน historical estimate ของ Settrade และระบุแหล่งข้อมูลไว้ใต้รายงาน
 
 รายงานใช้ข้อมูล signals ที่คำนวณไว้ในชีต ไม่มีการจัดอันดับหรือคำนวณ MPTM ใหม่ การเชื่อมต่อ Settrade (ถ้ากำหนด credentials) ใช้เฉพาะ read-only market data และไม่ส่งคำสั่งซื้อขาย
 
@@ -99,6 +105,8 @@ SETTRADE_APP_CODE=SANDBOX
 ```
 
 คำสั่งจะสมัครรับเฉพาะ read-only market feeds: มูลค่าซื้อขายสะสมของวันจาก `InfoV3.total_value` และ order book bid/ask 10 ระดับจาก `BidOfferV3` ผ่าน SDK `settrade-v2` จากนั้นแสดงมูลค่าซื้อขายวันนี้, ราคา bid/ask ระดับแรก, spread และผลรวมปริมาณ bid/ask 10 ระดับ ไม่มีการจัดระดับ HIGH/MEDIUM/LOW และไม่อนุมานค่าที่ไม่มีจาก snapshot หรือ cache เก่า หากข้อมูลไม่ครบจะแสดง N/A สำหรับส่วนนั้น พร้อมเตือนเมื่อ feed มีข้อผิดพลาดหรือหมดเวลารอ
+
+หาก Realtime request ได้ HTTP `401` (session หมดอายุ) จะ login ใหม่หนึ่งครั้งและลอง subscription ซ้ำหนึ่งครั้งตามแนวทาง Settrade; ข้อผิดพลาดอื่น เช่น HTTP `502` จะแสดง HTTP/API code และไม่ retry อัตโนมัติ Settrade ระบุว่า session อาจ reset ทุกวันช่วง 03:00–04:00 และ credentials ชุดเดียวกันไม่ควรถูก login พร้อมกันจากหลายโปรแกรม เพราะการ login ใหม่อาจทำให้ session ก่อนหน้าใช้ไม่ได้
 
 เก็บ App ID/Secret ใน `.env` ที่ไม่ commit; ห้ามใส่ PIN หรือเลขบัญชี และระบบไม่เรียก account, portfolio, order หรือ trade endpoints. Settrade ระบุว่า Sandbox จำกัดการเข้าถึงจาก IP ในประเทศไทยตั้งแต่ 16 กันยายน 2026; การทดสอบจากพื้นที่อื่นอาจเชื่อมต่อไม่ได้
 
