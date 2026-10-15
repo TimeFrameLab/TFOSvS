@@ -47,7 +47,7 @@ SETTRADE_BROKER_ID=SANDBOX
 SETTRADE_APP_CODE=SANDBOX
 ```
 
-การทำงานจริงของระบบคือ: ทุกครั้งที่รัน `UPDATE` หรือ `CANDIDATE` จะอ่าน `.env` ก่อนดึง Liquidity และ historical turnover จาก Settrade ผ่าน `tfos.sh`; หากไม่มี credentials หรือ feed ไม่ตอบกลับ ระบบจะแสดง `⚫ N/A` พร้อมคำเตือน และไม่ใช้ cache หรือค่าคาดเดาแทน รายงานใช้ read-only feeds เท่านั้น: มูลค่าซื้อขายสะสมวันนี้ (`InfoV3.total_value`), ราคา bid/ask ระดับแรก, spread และผลรวมปริมาณ order book bid/ask 10 ระดับ (`BidOfferV3`). แสดงตัวเลขดิบ ไม่จัดระดับสภาพคล่อง; ข้อมูลที่ขาดจะแสดง `N/A` พร้อมแจ้งข้อผิดพลาดหรือ timeout รวมถึง HTTP/API code ที่ SDK ส่งกลับ หาก Realtime คืน HTTP `401` จะ login ใหม่และลอง subscription ซ้ำได้หนึ่งครั้ง; จะไม่ retry `502` อัตโนมัติ Settrade historical `Avg Turnover 20D*` ประมาณจาก `close × volume` ของ 20 วันซื้อขายก่อนวันนี้; หากมี Pine CSV ของ TradingView จะใช้ค่า weekly proxy ที่อธิบายไว้ด้านล่างแทน Settrade historical estimate และติดป้ายแหล่งที่มา ไม่มีการใช้ PIN/เลขบัญชีหรือเรียก API บัญชี/คำสั่งซื้อขาย เก็บ credentials ไว้ใน `.env` และห้ามแชร์หรือ commit ค่าเหล่านี้
+การทำงานจริงของระบบคือ: ทุกครั้งที่รัน `UPDATE` หรือ `CANDIDATE` จะอ่าน `.env` ก่อนดึง Liquidity และ historical turnover จาก Settrade ผ่าน `tfos.sh`; หากไม่มี credentials หรือ feed ไม่ตอบกลับ ระบบจะแสดง `⚫ N/A` พร้อมคำเตือน และไม่ใช้ cache หรือค่าคาดเดาแทน รายงานใช้ read-only feeds เท่านั้น: มูลค่าซื้อขายสะสมวันนี้ (`InfoV3.total_value`), ราคา bid/ask ระดับแรก, spread และผลรวมปริมาณ order book bid/ask 10 ระดับ (`BidOfferV3`). แสดงตัวเลขดิบ ไม่จัดระดับสภาพคล่อง; ข้อมูลที่ขาดจะแสดง `N/A` พร้อมแจ้งข้อผิดพลาดหรือ timeout รวมถึง HTTP/API code ที่ SDK ส่งกลับ หาก Realtime คืน HTTP `401` จะ login ใหม่และลอง subscription ซ้ำได้หนึ่งครั้ง; จะไม่ retry `502` อัตโนมัติ Settrade historical turnover ประมาณจาก `close × volume` ของ 20 วันซื้อขายก่อนวันนี้; ค่า estimate หลักจาก TradingView คือ `AvgValue.Traded_30d` (rolling average 30 วัน ไม่ใช่ 20 วัน) พร้อมระบุแหล่งที่มา ไม่มีการใช้ PIN/เลขบัญชีหรือเรียก API บัญชี/คำสั่งซื้อขาย เก็บ credentials ไว้ใน `.env` และห้ามแชร์หรือ commit ค่าเหล่านี้
 
 Settrade ระบุว่า session อาจถูก reset ทุกวันช่วง 03:00–04:00 และ credentials ชุดเดียวกันไม่ควร login ใช้งานพร้อมกันจากหลายโปรแกรม เพราะ login ใหม่อาจทำให้ session ก่อนหน้าใช้ไม่ได้ หากได้ `401` ซ้ำหลัง retry หรือพบ `502` ให้ตรวจสอบ session และการเข้าถึงบริการกับ Settrade; ระบบไม่ login ซ้ำหรือ retry ต่อเนื่อง
 
@@ -55,26 +55,18 @@ Settrade ระบุว่า session อาจถูก reset ทุกวั�
 
 Settrade แจ้งว่า Sandbox จำกัดการเข้าถึงจาก IP ในประเทศไทยตั้งแต่ 16 กันยายน 2026; การเชื่อมต่อจากนอกประเทศไทยอาจใช้งานไม่ได้ รายงานยังคงทำงานและระบุ Liquidity ที่ไม่พร้อมใช้งานเมื่อไม่มี credentials หรือ feed
 
-### TradingView Pine estimate สำหรับข้อมูลย้อนหลัง
+### TradingView turnover estimate
 
-ใช้ Pine indicator [tfos_liquidity_estimate.pine](./tradingview/tfos_liquidity_estimate.pine) บนกราฟรายสัปดาห์เพื่อประมาณค่าเฉลี่ย turnover ต่อวันจาก 4 สัปดาห์ที่ปิดแล้ว (`weekly close × weekly volume` รวม 4 สัปดาห์ ÷ 20 วันซื้อขาย) แล้ว export chart data เป็น CSV ด้วยเมนู Download chart data… ของ TradingView:
+ระบบดึงค่า `AvgValue.Traded_30d` จาก Thailand scanner endpoint โดยตรงสำหรับหุ้นที่อยู่ในรายงาน ไม่ต้อง export CSV หรือเตรียม Pine data เอง ค่าเป็น rolling average 30 วันของ TradingView ไม่ใช่ค่าเฉลี่ย 20 วันซื้อขาย และจะติดป้าย `TradingView Screener 30D avg` ใน Liquidity พร้อมแสดงตัวเลขในคอลัมน์ `Avg Turnover Estimate*` หาก TradingView ไม่มีค่าหรือ endpoint ใช้ไม่ได้ ระบบจะแจ้งเตือนและลองใช้ Settrade historical estimate เมื่อมีข้อมูล; หากไม่มีทั้งสองแหล่งจะแสดง `⚫ N/A`
 
-1. เปิดกราฟ ticker ตลาด SET เช่น `SET:ADVANC` และเลือก timeframe `1W`
-2. เพิ่ม Pine indicator นี้ผ่าน Pine Editor แล้วกด Add to chart; ตรวจว่าแสดงค่า `TV Avg Turnover 20D THB`
-3. โหลดกราฟให้มีอย่างน้อย 5 แท่งรายสัปดาห์ (4 สัปดาห์ปิดแล้วและแท่งสัปดาห์ปัจจุบันถ้ามี) แล้วเลือก Download chart data…
-4. บันทึก CSV เป็น `downloads/tradingview/<AKA>.csv` เช่น `downloads/tradingview/ADVANC.csv` (หนึ่งไฟล์ต่อหนึ่งหุ้นที่จะแสดงในรายงาน)
-5. รัน `./update.sh`, `./update.sh UPDATE/<AKA>-...` หรือ `./candidate.sh` ตามปกติ
-
-ระบบอ่านค่าล่าสุดจากคอลัมน์ `TV Avg Turnover 20D THB` ใน CSV เฉพาะหุ้นที่จะแสดง และแสดงในช่อง Liquidity คู่กับค่า realtime เช่น `⚫ N/A — TradingView estimate ≈ ฿...`; คอลัมน์ `Avg Turnover 20D*` ยังคงแสดงตัวเลข estimate แยกให้ตรวจสอบได้ทั้งในรายงานและ workbook ใต้รายงานจะแจ้งว่า estimate มาจาก Pine CSV ของ TradingView พร้อมรายชื่อหุ้นที่นำมาใช้ ค่า Pine เป็น proxy ของค่าเฉลี่ยต่อวัน โดยเฉลี่ย turnover จาก `weekly close × weekly volume` ของ 4 สัปดาห์ที่ปิดแล้วและหาร 20 (สมมติ 5 วันซื้อขายต่อสัปดาห์) ไม่เทียบเท่าค่าเฉลี่ยจาก 20 แท่งรายวันโดยตรง
-
-CSV เป็นข้อมูลที่ผู้ใช้ export และนำเข้าเอง ไม่ใช่การดึง TradingView API อัตโนมัติ หากไม่มีไฟล์หรือรูปแบบคอลัมน์ไม่ตรง ระบบจะแจ้งเตือนและใช้ Settrade historical estimate (ถ้าดึงได้) หรือ `⚫ N/A` แทน โดยไม่สร้างค่าเอง การ export และข้อมูลที่เข้าถึงได้ขึ้นกับเครื่องมือ/บัญชี TradingView ที่ใช้งาน หากไม่มีเมนู export จะยังนำ estimate เข้า workflow นี้ไม่ได้ ส่วน Bid–Ask และ turnover วันนี้มาจาก Settrade realtime เท่านั้น; เมื่อ feed ใช้ไม่ได้คงเป็น `⚫ N/A` ไม่แทนด้วย estimate ย้อนหลัง
+อ้างอิง: [TradingView Stocks fields](https://shner-elmo.github.io/TradingView-Screener/fields/stocks.html) และ [Thailand scanner endpoint](https://scanner.tradingview.com/thailand/scan). ค่านี้เป็น estimate ไม่ใช่มูลค่าซื้อขายจริง และไม่ใช้แทน Bid–Ask หรือ turnover วันนี้จาก Settrade realtime
 
 ## 🧭 คำสั่งหลัก
 
 | คำสั่ง | วิธีใช้ | ผลลัพธ์ |
 |---|---|---|
 | `START @README.md` | พิมพ์ในแชต | อ่าน README และทบทวน guideline ก่อนรอคำสั่ง |
-| `UPDATE` | รัน `./update.sh` | ดาวน์โหลดข้อมูลล่าสุด + ประมวลผล MPTM + ตรวจ Liquidity (`Liquidity` และ `Avg Turnover 20D*`) |
+| `UPDATE` | รัน `./update.sh` | ดาวน์โหลดข้อมูลล่าสุด + ประมวลผล MPTM + ตรวจ Liquidity (`Liquidity` และ `Avg Turnover Estimate*`) |
 | `UPDATE/<AKA>-<AKA>-...` | รัน `./update.sh UPDATE/PTT-AOT-CPALL` | ดาวน์โหลด snapshot และแสดงเฉพาะหุ้นที่ระบุ |
 | `CANDIDATE` | ค้นหาใน Excel ด้วย `./candidate.sh` | แสดงหุ้นที่ผ่าน PRE-ENTRY-Like Pattern (7 เกณฑ์) |
 | `REVIEW` | พิมพ์ในแชต | ทบทวน guideline อีกครั้ง |
@@ -127,22 +119,22 @@ UPDATED     : 14/10/2026 17:10
 GROUP       : A
 
 🟢 BUY CONFIRMED — 0 หุ้น
-| หุ้น | GROUP | RSI(W) | RSI(D) | MACD_D | ราคา | Liquidity | Avg Turnover 20D* |
+| หุ้น | GROUP | RSI(W) | RSI(D) | MACD_D | ราคา | Liquidity | Avg Turnover Estimate* |
 |---|---|---|---|---|---|---|---|
 | — | — | — | — | — | — | — | — |
 
 🟡 EARLY/WATCH — 7 หุ้น (TOP 10)
-| หุ้น | GROUP | RSI(W) | RSI(D) | MACD_D | ราคา | Liquidity | Avg Turnover 20D* |
+| หุ้น | GROUP | RSI(W) | RSI(D) | MACD_D | ราคา | Liquidity | Avg Turnover Estimate* |
 |---|---|---|---|---|---|---|---|
 | [SCC](https://www.finnomena.com/stock/SCC/advance) | A | 65.27 | 62.36 | 0.84941 | 277 | ... | ≈ ฿1,540,511,672.30 |
 
 🟠 PULLBACK ZONE — 0 หุ้น (TOP 10)
-| หุ้น | GROUP | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity | Avg Turnover 20D* |
+| หุ้น | GROUP | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity | Avg Turnover Estimate* |
 |---|---|---|---|---|---|---|---|---|---|
 | — | — | — | — | — | — | — | — | — | — |
 
 🔴 OVEREXTENDED — 3 หุ้น
-| หุ้น | GROUP | Liquidity | Avg Turnover 20D* |
+| หุ้น | GROUP | Liquidity | Avg Turnover Estimate* |
 |---|---|---|---|
 | [PLANB](https://www.finnomena.com/stock/PLANB/advance) | B | ... | ≈ ฿244,285,347.60 |
 
@@ -169,7 +161,7 @@ UPDATED     : 14/10/2026 17:10
 GROUP       : A
 
 🔵 SPECIFIED STOCK — 2 รายการ
-| AKA | GROUP | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity | Avg Turnover 20D* |
+| AKA | GROUP | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity | Avg Turnover Estimate* |
 |---|---|---:|---:|---:|---|---|---|---|---:|
 | [SCC](https://www.finnomena.com/stock/SCC/advance) | A | 65.27 | 73.26 | 277.0000 | 🟢🟢⚪🟢 (3/4) | 🟢🟢🟢🟢 (4/4) | ✅✅❌✅ (3/4) | ... | ≈ ฿1,540,511,672.30 |
 | [PTT](https://www.finnomena.com/stock/PTT/advance) | A | 59.64 | 53.05 | 40.7500 | ... | ... | ... | ... | ≈ ฿4,214,308,537.22 |
@@ -182,12 +174,12 @@ GROUP       : A
 ```text
 ผลการค้นหา CANDIDATE (PRE-ENTRY-Like Pattern) — 7 หุ้น
 ผ่านเกณฑ์ CANDIDATE 7 ข้อ เรียงตาม MACD Delta (W) สูงสุด — รอ 1H Trigger ยืนยัน
-| # | หุ้น | GROUP | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity | Avg Turnover 20D* |
+| # | หุ้น | GROUP | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity | Avg Turnover Estimate* |
 |---:|---|---|---:|---:|---|---|---|---:|
 | 1 | [SCC](https://www.finnomena.com/stock/SCC/advance) | A | 277 | 0.84941 | 🔴 LH/LL | 🟡 WAIT | ... | ≈ ฿1,540,511,672.30 |
 ```
 
-ลำดับคอลัมน์นี้ต้องเป็นไปตามที่กำหนด: `# | หุ้น | GROUP | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity | Avg Turnover 20D*`
+ลำดับคอลัมน์นี้ต้องเป็นไปตามที่กำหนด: `# | หุ้น | GROUP | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity | Avg Turnover Estimate*`
 
 ### ✅ ข้อกำหนดบังคับเรื่องการแสดงผล (Output Contract)
 
@@ -198,7 +190,7 @@ GROUP       : A
 - `EARLY/WATCH` ต้องเรียงตาม `MACD_HIST_DELTA(W)` มากไปน้อย และ `PULLBACK ZONE` ต้องเรียงตาม Combined Score มากไปน้อย ตามที่กำหนดใน snapshot
 - หุ้นทุกแถวและรายชื่อ `OVEREXTENDED` ต้องเป็น Markdown link ไปยัง `https://www.finnomena.com/stock/<AKA>/advance`
 - `UPDATE/<AKA>-<AKA>-...` ต้องแสดงบล็อก `AKA`, `LAST_CANDLE`, `UPDATED`, `GROUP` สำหรับแต่ละหุ้นตามลำดับที่ร้องขอ และคงโครงสร้างตารางตามที่กำหนดไว้
-- `CANDIDATE` ต้องแสดงหัวข้อ `ผลการค้นหา CANDIDATE (PRE-ENTRY-Like Pattern) — n หุ้น` และรักษาลำดับคอลัมน์ `# | หุ้น | GROUP | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity | Avg Turnover 20D*`
+- `CANDIDATE` ต้องแสดงหัวข้อ `ผลการค้นหา CANDIDATE (PRE-ENTRY-Like Pattern) — n หุ้น` และรักษาลำดับคอลัมน์ `# | หุ้น | GROUP | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity | Avg Turnover Estimate*`
 - `CANDIDATE` ใช้ schema Candidate เท่านั้น; ไม่ต้องแสดงสรุป `ADVANC` หรือกลุ่มสถานะ UPDATE ส่วน `UPDATE/<AKA>-...` ใช้ schema SPECIFIED STOCK เท่านั้น; ไม่ต้องแสดงกลุ่ม UPDATE ปกติ
 - รายงานที่แสดงในแชตต้องเป็น Markdown ที่ render ได้จริง โดยคงข้อมูลทุกแถว/คอลัมน์และคำเตือนตามผลคำสั่ง; ห้ามห่อด้วย code fence, ย่อ, สรุปแทนตาราง หรือสร้างค่าขึ้นเอง
 - เมื่อไม่ได้รับข้อมูล/credentials/feed หรือดาวน์โหลดล้มเหลว ให้รายงานตามข้อเท็จจริงเท่านั้น ไม่อ้างว่าทำงานสำเร็จหรือใช้ข้อมูลเก่าแทน
@@ -217,11 +209,11 @@ GROUP       : <GROUP>
 
 คอลัมน์ `LAST_CANDLE` และ `UPDATED` ต้องมีอยู่และมีค่าในแถว `ADVANC`; หากขาด โปรแกรมจะแจ้งข้อผิดพลาดแทนการแสดงค่าที่คาดเดา `UPDATE` จากนั้นจัดกลุ่มผลเป็น `BUY CONFIRMED`, `EARLY/WATCH`, `PULLBACK ZONE`, `OVEREXTENDED` และ `WAIT/RETEST` ตามข้อมูลใน snapshot โดยเรียง `EARLY/WATCH` ตาม `MACD_HIST_DELTA(W)` และ `PULLBACK ZONE` ตาม Combined Score หุ้นแสดงเป็นลิงก์ `https://www.finnomena.com/stock/<AKA>/advance` และใช้คอลัมน์ `GROUP`
 
-`UPDATE/<AKA>-<AKA>-...` แสดงบล็อก `AKA`, `LAST_CANDLE`, `UPDATED`, `GROUP` สำหรับแต่ละหุ้นตามลำดับที่ขอ แล้วแสดง `🔵 SPECIFIED STOCK — n รายการ` พร้อมตาราง `AKA | GROUP | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity | Avg Turnover 20D*`; แถวเรียงตามคะแนน CMB มากไปน้อย ส่วน AKA ที่ไม่พบหรือ timestamp ว่างจะแจ้งตามจริงและทำให้คำสั่งจบด้วย error status. ค่า Liquidity ยังคงเป็นตัวเลขดิบที่ได้รับจาก Settrade หรือ `⚫ N/A`; ไม่มีการแสดง HIGH/MEDIUM/LOW โดยไม่มีเกณฑ์ที่ยืนยันแล้ว ระบบไม่บันทึก Workbook ที่ดาวน์โหลดกลับไปยัง Google Sheets
+`UPDATE/<AKA>-<AKA>-...` แสดงบล็อก `AKA`, `LAST_CANDLE`, `UPDATED`, `GROUP` สำหรับแต่ละหุ้นตามลำดับที่ขอ แล้วแสดง `🔵 SPECIFIED STOCK — n รายการ` พร้อมตาราง `AKA | GROUP | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity | Avg Turnover Estimate*`; แถวเรียงตามคะแนน CMB มากไปน้อย ส่วน AKA ที่ไม่พบหรือ timestamp ว่างจะแจ้งตามจริงและทำให้คำสั่งจบด้วย error status. ค่า Liquidity ยังคงเป็นตัวเลขดิบที่ได้รับจาก Settrade หรือ `⚫ N/A`; ไม่มีการแสดง HIGH/MEDIUM/LOW โดยไม่มีเกณฑ์ที่ยืนยันแล้ว ระบบไม่บันทึก Workbook ที่ดาวน์โหลดกลับไปยัง Google Sheets
 
-`UPDATE` ปกติและ `UPDATE/<AKA>-...` จะประมวลผล signals และดึงข้อมูลก่อนแสดงรายงาน จากนั้นแสดง Liquidity ปัจจุบันและคอลัมน์ `Avg Turnover 20D*` ในตารางเดียวกัน ไม่มีตาราง refresh แยกด้านล่าง คำสั่ง UPDATE ปกติดึงเฉพาะหุ้นที่ปรากฏในตาราง (`BUY CONFIRMED`, `EARLY/WATCH` TOP 10, `PULLBACK ZONE` TOP 10 และ `OVEREXTENDED`); `WAIT/RETEST` แสดงจำนวนอย่างเดียวและไม่ดึงทั้ง Liquidity ปัจจุบันหรือข้อมูลย้อนหลัง การดึง feed ปัจจุบันทำทีละหุ้น (ไม่เกิน 2 subscriptions พร้อมกัน), ปิด feed ก่อนหุ้นถัดไป; ข้อมูลย้อนหลังใช้ daily candles จาก Settrade สำหรับ 20 วันซื้อขายที่มี volume ก่อนวันนี้ ภายในงบเวลาประมวลผลรวม 120 วินาที หากข้อมูลย้อนหลังไม่ครบจะแสดง `⚫ N/A`
+`UPDATE` ปกติและ `UPDATE/<AKA>-...` จะประมวลผล signals และดึงข้อมูลก่อนแสดงรายงาน จากนั้นแสดง Liquidity ปัจจุบันและคอลัมน์ `Avg Turnover Estimate*` ในตารางเดียวกัน ไม่มีตาราง refresh แยกด้านล่าง คำสั่ง UPDATE ปกติดึงเฉพาะหุ้นที่ปรากฏในตาราง (`BUY CONFIRMED`, `EARLY/WATCH` TOP 10, `PULLBACK ZONE` TOP 10 และ `OVEREXTENDED`); `WAIT/RETEST` แสดงจำนวนอย่างเดียวและไม่ดึงทั้ง Liquidity ปัจจุบันหรือข้อมูลย้อนหลัง การดึง realtime feed ทำทีละหุ้น (ไม่เกิน 2 subscriptions พร้อมกัน), ปิด feed ก่อนหุ้นถัดไป และทำเฉพาะวันจันทร์–ศุกร์ เวลา 10:00–12:30 และ 14:30–16:30 น. ตามเวลาไทย โดยไม่พิจารณาวันหยุด SET; นอกช่วงดังกล่าวไม่สมัคร feed และไม่แสดง `⚫ N/A` สำหรับ realtime Liquidity ข้อมูลย้อนหลังใช้ daily candles จาก Settrade สำหรับ 20 วันซื้อขายที่มี volume ก่อนวันนี้ ภายในงบเวลาประมวลผลรวม 120 วินาที
 
-`Avg Turnover 20D*` จาก Settrade เป็นค่าประมาณ `close × volume` เฉลี่ย 20 วันซื้อขาย ไม่ใช่มูลค่าซื้อขายจริง เนื่องจากการทดสอบ UAT พบว่าฟิลด์ daily `value` เป็นศูนย์แม้มี volume; ระบบจะแจ้งความผิดปกติของฟิลด์นี้และคำนวณค่าประมาณจาก `close × volume` อย่างเปิดเผย หากใช้ TradingView Pine CSV จะใช้ weekly proxy จาก 4 สัปดาห์ที่ปิดแล้วหารด้วย 20 (สมมติ 5 วันซื้อขายต่อสัปดาห์) แทน Settrade historical estimate ซึ่งไม่เทียบเท่าค่าเฉลี่ยจาก 20 แท่งรายวัน ทั้งสองค่าไม่ใช้จัดระดับ `HIGH/MEDIUM/LOW` และยังต้องยืนยันความหมาย/คุณภาพข้อมูลก่อนใช้จริง
+`Avg Turnover Estimate*` จาก TradingView ใช้ `AvgValue.Traded_30d` ซึ่งเป็น rolling average 30 วัน ไม่ใช่ 20 วัน; หาก TradingView ไม่มีค่าหรือ endpoint ใช้ไม่ได้ ระบบลองใช้ Settrade (`close × volume` เฉลี่ย 20 วันซื้อขาย) เมื่อมีข้อมูล โดยติดป้ายแหล่งใน Liquidity ค่าเหล่านี้เป็นค่าประมาณ ไม่ใช่มูลค่าซื้อขายจริง และไม่ใช้จัดระดับ `HIGH/MEDIUM/LOW`
 
 `CANDIDATE` ผ่านเมื่อครบทุกเงื่อนไข:
 
@@ -233,7 +225,7 @@ GROUP       : <GROUP>
 6. `EMA9(W) > EMA21(W)`
 7. `SIGNAL_VOLUME` เป็น `BUY` อย่างน้อยหนึ่ง timeframe ใน W/D/4H/1H
 
-รายงานแสดงจำนวนผู้ผ่านทั้งหมดและไม่เกิน 20 แถว เรียงตาม `MACD_HIST_DELTA(W)` จากมากไปน้อย พร้อม `GROUP`, ราคา, `ENTRY_ZONE(4H)`, `ENTRY_TRIGGER(1H)`, Liquidity และ `Avg Turnover 20D*`; ดึงข้อมูลเพิ่มเฉพาะผู้ผ่านที่แสดงใน 20 แถวแรก
+รายงานแสดงจำนวนผู้ผ่านทั้งหมดและไม่เกิน 20 แถว เรียงตาม `MACD_HIST_DELTA(W)` จากมากไปน้อย พร้อม `GROUP`, ราคา, `ENTRY_ZONE(4H)`, `ENTRY_TRIGGER(1H)`, Liquidity และ `Avg Turnover Estimate*`; ดึงข้อมูลเพิ่มเฉพาะผู้ผ่านที่แสดงใน 20 แถวแรก
 
 ### สถานะ MPTM และรายงาน Excel
 
@@ -261,7 +253,7 @@ GROUP       : <GROUP>
 2. **ผู้ให้บริการข้อมูลตลาดหรือ API ของโบรกเกอร์** — ใช้ได้เมื่อผู้ให้บริการรองรับหลักทรัพย์ SET, มีข้อมูลและความถี่ที่ต้องการ และอนุญาตให้ใช้ข้อมูลในรายงานนี้
 3. **คอลัมน์ใน Reference Sheet** — เหมาะกับ workflow ปัจจุบัน หากเพิ่มข้อมูลจากแหล่งที่ระบุชัดเจน เช่น มูลค่าซื้อขายเฉลี่ยย้อนหลังและเวลาอ้างอิง แล้วส่งต่อมาใน snapshot
 
-ระบบปัจจุบันไม่จัดระดับ HIGH/MEDIUM/LOW และไม่ดึงค่าเก่ามาทดแทนข้อมูลที่ขาด ห้ามอนุมาน Liquidity จาก `SIGNAL_VOLUME`; Pine CSV ที่ผู้ใช้ export เองเป็น historical estimate ที่ติดป้ายแหล่งข้อมูล ไม่ใช่ข้อมูล realtime และไม่ใช้แทน Settrade Bid–Ask/turnover วันนี้
+ระบบปัจจุบันไม่จัดระดับ HIGH/MEDIUM/LOW และไม่ดึงค่าเก่ามาทดแทนข้อมูลที่ขาด ห้ามอนุมาน Liquidity จาก `SIGNAL_VOLUME`; TradingView `AvgValue.Traded_30d` เป็น historical estimate 30 วัน ไม่ใช่ข้อมูล realtime และไม่ใช้แทน Settrade Bid–Ask/turnover วันนี้
 
 ## 🛡️ ขอบเขตและข้อควรระวัง
 
