@@ -574,7 +574,8 @@ for symbol,estimate in tv_estimates.items():
 with open(output_path,"w",encoding="utf-8") as out:
     for symbol in symbols:
         fields=metrics.get(symbol,["⚫ N/A","⚫ N/A",""])
-        out.write(symbol+"\t"+"\t".join(fields[:2])+"\t"+(fields[2] if len(fields)>2 else "")+"\t"+("MARKET_OPEN" if market_open else "MARKET_CLOSED")+"\n")
+        live_value=fields[0] if market_open else ""
+        out.write(symbol+"\t"+live_value+"\t"+fields[1]+"\t"+(fields[2] if len(fields)>2 else "")+"\t"+("MARKET_OPEN" if market_open else "MARKET_CLOSED")+"\n")
 with open(warning_path,"w",encoding="utf-8") as out:
     scanner_symbols=sorted(symbol for symbol,source in tv_sources.items() if source=="TRADINGVIEW_SCANNER_30D")
     if scanner_symbols:
